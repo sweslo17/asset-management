@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Worktrees
+.worktrees/
+
+# Secrets
+*.json.key
+service-account*.json
+
+# Python
+*.egg-info/
+
+# Claude
+.claude/
