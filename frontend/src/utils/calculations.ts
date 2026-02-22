@@ -198,10 +198,15 @@ export function calculateProfitLoss(
         startValue += investmentCostTWD(inv);
       } else if (startPrice !== null) {
         startValue += investmentMarketValueTWD(inv, startPrice, startUsdTwd);
+      } else {
+        // No price data for start date, fall back to cost
+        startValue += investmentCostTWD(inv);
       }
 
       if (endPrice !== null) {
         endValue += investmentMarketValueTWD(inv, endPrice, endUsdTwd);
+      } else {
+        endValue += investmentCostTWD(inv);
       }
     }
 

@@ -19,7 +19,7 @@ export function CategoryPage() {
   const investmentsWithValue = calculateInvestmentValues(data.investments, data.prices, data.exchange_rates, targetDate)
   const categories = calculateCategorySummary(investmentsWithValue)
 
-  const totalValue = categories.reduce((s, c) => s + c.totalValue, 0)
+  const totalValue = investmentsWithValue.reduce((s, i) => s + i.marketValueTWD, 0)
 
   const toggleExpand = (tag: string) => {
     setExpandedTags((prev) => {
