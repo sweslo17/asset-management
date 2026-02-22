@@ -37,7 +37,7 @@ jobs:
         env:
           PORTFOLIO_GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           PORTFOLIO_SERVICE_ACCOUNT_JSON_PATH: service-account.json
-        run: poetry run python -m portfolio_updater.main
+        run: PYTHONPATH=src poetry run python -m portfolio_updater.main
 
       - name: Cleanup
         if: always()
