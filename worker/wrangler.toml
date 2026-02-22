@@ -1,0 +1,38 @@
+name = "asset-management-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# ---------------------------------------------------------------------------
+# Routes
+# Uncomment and replace with your actual domain after deploying.
+# ---------------------------------------------------------------------------
+# routes = [
+#   { pattern = "api.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
+
+# ---------------------------------------------------------------------------
+# Environment variable bindings (secrets)
+#
+# Set these via the CLI before deploying:
+#   npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
+#   npx wrangler secret put GOOGLE_SHEETS_ID
+#
+# Never commit actual secret values to source control.
+# ---------------------------------------------------------------------------
+[vars]
+# Placeholder — actual values must be set as Wrangler secrets (see above).
+# GOOGLE_SERVICE_ACCOUNT_JSON = ""
+# GOOGLE_SHEETS_ID = ""
+
+# ---------------------------------------------------------------------------
+# Build configuration
+# Type-check is run via `npm run type-check` manually or in CI.
+# Wrangler handles TS transpilation natively — no custom build needed.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Development server settings
+# ---------------------------------------------------------------------------
+[dev]
+port = 8787
+local_protocol = "http"

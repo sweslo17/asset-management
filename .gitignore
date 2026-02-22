@@ -12,6 +12,7 @@ build/
 .env
 .env.local
 *.local
+.dev.vars
 
 # IDE
 .vscode/
