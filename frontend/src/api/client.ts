@@ -8,15 +8,35 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
+const API_KEY_STORAGE_KEY = 'asset_mgmt_api_key';
+
+export function getStoredApiKey(): string | null {
+  return localStorage.getItem(API_KEY_STORAGE_KEY);
+}
+
+export function setStoredApiKey(key: string): void {
+  localStorage.setItem(API_KEY_STORAGE_KEY, key);
+}
+
+export function clearStoredApiKey(): void {
+  localStorage.removeItem(API_KEY_STORAGE_KEY);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const apiKey = getStoredApiKey();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(apiKey ? { 'X-API-Key': apiKey } : {}),
       ...options?.headers,
     },
-    credentials: 'include',
   });
+  if (res.status === 401) {
+    clearStoredApiKey();
+    window.location.reload();
+    throw new Error('Unauthorized');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { error?: string }).error || `API error: ${res.status}`);

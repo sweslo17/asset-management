@@ -86,6 +86,8 @@ export interface Env {
   GOOGLE_SERVICE_ACCOUNT_JSON: string;
   /** The ID of the target Google Spreadsheet. */
   GOOGLE_SHEETS_ID: string;
+  /** API key required in the X-API-Key header for all requests. */
+  API_KEY: string;
 }
 
 // ---------------------------------------------------------------------------

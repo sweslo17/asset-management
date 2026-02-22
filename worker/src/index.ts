@@ -49,7 +49,7 @@ function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -546,6 +546,12 @@ export default {
         status: 204,
         headers: corsHeaders(),
       });
+    }
+
+    // Validate API key.
+    const apiKey = request.headers.get('X-API-Key');
+    if (!apiKey || apiKey !== env.API_KEY) {
+      return errorResponse('Unauthorized: invalid or missing API key.', 401);
     }
 
     const matched = matchRoute(method, pathname);
