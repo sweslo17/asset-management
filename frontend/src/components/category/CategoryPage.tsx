@@ -70,7 +70,7 @@ export function CategoryPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-base">{cat.tag}</CardTitle>
-                  <Badge variant="secondary" className="text-xs">{cat.investments.length} 檔</Badge>
+                  <Badge variant="secondary" className="text-xs">{new Set(cat.investments.map((i) => i.ticker)).size} 檔</Badge>
                 </div>
                 <span className="text-xs text-muted-foreground">
                   {totalValue > 0 ? formatPercent(cat.totalValue / totalValue) : '0%'} 佔比

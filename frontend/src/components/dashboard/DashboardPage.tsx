@@ -1,5 +1,5 @@
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateInvestmentValues } from '@/utils/calculations'
+import { calculateInvestmentValues, type InvestmentWithValue } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -8,10 +8,44 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 
-// Usage:
-// <DashboardPage />
-// Renders portfolio overview with summary cards and holdings table.
-// Data is fetched via usePortfolioData(); no props required.
+interface AggregatedHolding {
+  ticker: string
+  name: string
+  market: 'TW' | 'US'
+  units: number
+  costTWD: number
+  marketValueTWD: number
+  profitTWD: number
+  profitPercent: number
+}
+
+function aggregateByTicker(investments: InvestmentWithValue[]): AggregatedHolding[] {
+  const map = new Map<string, AggregatedHolding>()
+  for (const inv of investments) {
+    const existing = map.get(inv.ticker)
+    if (existing) {
+      existing.units += inv.units
+      existing.costTWD += inv.costTWD
+      existing.marketValueTWD += inv.marketValueTWD
+      existing.profitTWD += inv.profitTWD
+    } else {
+      map.set(inv.ticker, {
+        ticker: inv.ticker,
+        name: inv.name,
+        market: inv.market,
+        units: inv.units,
+        costTWD: inv.costTWD,
+        marketValueTWD: inv.marketValueTWD,
+        profitTWD: inv.profitTWD,
+        profitPercent: 0,
+      })
+    }
+  }
+  for (const h of map.values()) {
+    h.profitPercent = h.costTWD !== 0 ? h.profitTWD / h.costTWD : 0
+  }
+  return Array.from(map.values()).sort((a, b) => b.marketValueTWD - a.marketValueTWD)
+}
 
 export function DashboardPage() {
   const { data, isLoading, error } = usePortfolioData()
@@ -20,15 +54,16 @@ export function DashboardPage() {
   if (error || !data) return <div className="text-destructive p-8">載入失敗: {error?.message}</div>
 
   const targetDate = getLatestDate(data.prices)
-  const investments = calculateInvestmentValues(
+  const rawInvestments = calculateInvestmentValues(
     data.investments,
     data.prices,
     data.exchange_rates,
     targetDate,
-  ).sort((a, b) => b.marketValueTWD - a.marketValueTWD)
+  )
+  const holdings = aggregateByTicker(rawInvestments)
 
-  const totalValue = investments.reduce((s, i) => s + i.marketValueTWD, 0)
-  const totalCost = investments.reduce((s, i) => s + i.costTWD, 0)
+  const totalValue = holdings.reduce((s, i) => s + i.marketValueTWD, 0)
+  const totalCost = holdings.reduce((s, i) => s + i.costTWD, 0)
   const totalProfit = totalValue - totalCost
   const totalProfitPct = totalCost !== 0 ? totalProfit / totalCost : 0
 
@@ -92,39 +127,30 @@ export function DashboardPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {investments.map((inv) => (
-                <TableRow key={inv.id}>
-                  {/* Name + ticker + market badge */}
+              {holdings.map((h) => (
+                <TableRow key={h.ticker}>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div>
-                        <p className="font-medium">{inv.name}</p>
-                        <p className="text-xs text-muted-foreground">{inv.ticker}</p>
+                        <p className="font-medium">{h.name}</p>
+                        <p className="text-xs text-muted-foreground">{h.ticker}</p>
                       </div>
-                      <Badge variant="outline" className="text-xs">{inv.market}</Badge>
+                      <Badge variant="outline" className="text-xs">{h.market}</Badge>
                     </div>
                   </TableCell>
-
-                  {/* Holdings: TW uses 張, US uses 股 */}
                   <TableCell className="text-right tabular-nums">
-                    {inv.units}{inv.market === 'TW' ? '張' : '股'}
+                    {h.units}{h.market === 'TW' ? '張' : '股'}
                   </TableCell>
-
-                  {/* Market value in TWD */}
                   <TableCell className="text-right">
-                    <CurrencyDisplay value={inv.marketValueTWD} />
+                    <CurrencyDisplay value={h.marketValueTWD} />
                   </TableCell>
-
-                  {/* Profit/loss with sign and color */}
                   <TableCell className="text-right">
-                    <CurrencyDisplay value={inv.profitTWD} showSign />
+                    <CurrencyDisplay value={h.profitTWD} showSign />
                   </TableCell>
-
-                  {/* Return percentage */}
                   <TableCell
-                    className={`text-right tabular-nums ${inv.profitTWD >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+                    className={`text-right tabular-nums ${h.profitTWD >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
                   >
-                    {formatPercent(inv.profitPercent)}
+                    {formatPercent(h.profitPercent)}
                   </TableCell>
                 </TableRow>
               ))}
