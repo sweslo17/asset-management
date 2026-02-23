@@ -3,17 +3,16 @@ import type {
   PriceRecord,
   ExchangeRate,
   Batch,
+  FundingSource,
 } from '@/api/types';
 import { investmentCostTWD, investmentMarketValueTWD } from './currency';
 import { findPrice, findExchangeRate, parseTags } from './dateUtils';
-import { buildNavState, calculateNav } from './navCalculator';
-import type { NavState } from './navCalculator';
+import { calculateSourceAllocations } from './proportionalCalculator';
+import type { FundingSourceAllocation, SourceHolding } from './proportionalCalculator';
 
-// Re-export for consumers that need NavState alongside these helpers
-export type { NavState };
-
-// Re-export nav helpers so callers only need this module
-export { buildNavState, calculateNav };
+// Re-export proportional calculator types and function
+export type { FundingSourceAllocation, SourceHolding };
+export { calculateSourceAllocations };
 
 /** Individual investment with calculated values */
 export interface InvestmentWithValue extends Investment {
@@ -82,68 +81,63 @@ export function calculateCategorySummary(
     .sort((a, b) => b.totalValue - a.totalValue);
 }
 
-/** Funding source value/profit */
-export interface FundingSourceSummary {
-  sourceName: string;
-  investedAmount: number;
-  currentValue: number;
-  profit: number;
-  profitPercent: number;
-  units: number;
-}
+/** Funding source summary — now an alias for FundingSourceAllocation */
+export type FundingSourceSummary = FundingSourceAllocation;
 
-/** Calculate per-source value using NAV */
-export function calculateFundingSummary(
-  navState: NavState,
-  currentNav: number,
-): FundingSourceSummary[] {
-  return navState.sourceUnits.map((su) => {
-    const currentValue = su.units * currentNav;
-    const profit = currentValue - su.investedAmount;
-    const profitPercent = su.investedAmount !== 0 ? profit / su.investedAmount : 0;
-    return {
-      sourceName: su.sourceName,
-      investedAmount: su.investedAmount,
-      currentValue,
-      profit,
-      profitPercent,
-      units: su.units,
-    };
-  });
-}
-
-/** Batch profit */
+/** Per-batch summary with proportional allocation */
 export interface BatchSummary {
   batchId: string;
   date: string;
   description: string;
   totalFunded: number;
+  totalCostTWD: number;
   currentValue: number;
   profit: number;
   profitPercent: number;
-  units: number;
+  sources: { sourceName: string; amount: number; proportion: number }[];
+  investments: InvestmentWithValue[];
 }
 
-/** Calculate per-batch value using NAV */
+/** Calculate per-batch summary using proportional model */
 export function calculateBatchSummary(
-  navState: NavState,
-  currentNav: number,
   batches: Batch[],
+  fundingSources: FundingSource[],
+  investments: Investment[],
+  prices: PriceRecord[],
+  exchangeRates: ExchangeRate[],
+  targetDate: string,
 ): BatchSummary[] {
-  return navState.batchUnits.map((bu) => {
-    const batch = batches.find((b) => b.batch_id === bu.batchId);
-    const currentValue = bu.units * currentNav;
-    const profit = currentValue - bu.totalFunded;
-    const profitPercent = bu.totalFunded !== 0 ? profit / bu.totalFunded : 0;
+  return batches.map((batch) => {
+    const batchSources = fundingSources.filter((fs) => fs.batch_id === batch.batch_id);
+    const totalFunded = batchSources.reduce((sum, fs) => sum + fs.amount_twd, 0);
+
+    const batchInvestments = investments.filter((inv) => inv.batch_id === batch.batch_id);
+    const investmentsWithValue = calculateInvestmentValues(batchInvestments, prices, exchangeRates, targetDate);
+
+    const totalCostTWD = investmentsWithValue.reduce((sum, inv) => sum + inv.costTWD, 0);
+    const totalMarketValue = investmentsWithValue.reduce((sum, inv) => sum + inv.marketValueTWD, 0);
+    const uninvestedCash = totalFunded - totalCostTWD;
+    const currentValue = totalMarketValue + uninvestedCash;
+    const profit = currentValue - totalFunded;
+    const profitPercent = totalFunded !== 0 ? profit / totalFunded : 0;
+
+    const sources = batchSources.map((fs) => ({
+      sourceName: fs.source_name,
+      amount: fs.amount_twd,
+      proportion: totalFunded !== 0 ? fs.amount_twd / totalFunded : 0,
+    }));
+
     return {
-      batchId: bu.batchId,
-      date: batch?.date ?? '',
-      description: batch?.description ?? '',
-      totalFunded: bu.totalFunded,
+      batchId: batch.batch_id,
+      date: batch.date,
+      description: batch.description,
+      totalFunded,
+      totalCostTWD,
       currentValue,
       profit,
       profitPercent,
-      units: bu.units,
+      sources,
+      investments: investmentsWithValue,
     };
   });
 }
