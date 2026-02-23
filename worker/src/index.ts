@@ -508,7 +508,12 @@ async function handleSearchTicker(query: string): Promise<Response> {
   };
 
   const quotes = (data.quotes ?? [])
-    .filter((q) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF'))
+    .filter((q) => {
+      if (!q.symbol || (q.quoteType !== 'EQUITY' && q.quoteType !== 'ETF')) return false;
+      const s = q.symbol;
+      // Only keep TW (.TW, .TWO) and US (no suffix) tickers
+      return /\.TW[O]?$/.test(s) || !s.includes('.');
+    })
     .map((q) => {
       const symbol = q.symbol ?? '';
       const market: 'TW' | 'US' = /\.TW[O]?$/.test(symbol) ? 'TW' : 'US';
