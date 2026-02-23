@@ -7,6 +7,20 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { ChartTooltip } from '@/components/charts/ChartTooltip'
+import {
+  PieChart, Pie, Cell, Legend, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  ResponsiveContainer,
+} from 'recharts'
+
+const CHART_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+]
 
 interface AggregatedHolding {
   ticker: string
@@ -106,6 +120,73 @@ export function DashboardPage() {
                 {formatPercent(totalProfitPct)}
               </span>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Donut chart - 持倉佔比 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>持倉佔比</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={holdings.map((h) => ({ name: h.name, value: h.marketValueTWD }))}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius="60%"
+                  outerRadius="80%"
+                  label={({ percent }: { percent?: number }) => percent != null ? `${(percent * 100).toFixed(1)}%` : ''}
+                  labelLine={false}
+                >
+                  {holdings.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<ChartTooltip />} />
+                <Legend
+                  formatter={(value, entry) => {
+                    const item = holdings.find((h) => h.name === value)
+                    const pct = item && totalValue ? ((item.marketValueTWD / totalValue) * 100).toFixed(1) : '0'
+                    return (
+                      <span style={{ color: entry.color }}>
+                        {value} ({pct}%)
+                      </span>
+                    )
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Horizontal bar chart - 成本 vs 市值 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>成本 vs 市值</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={holdings.length * 60 + 40}>
+              <BarChart
+                layout="vertical"
+                data={holdings.map((h) => ({ name: h.name, 成本: h.costTWD, 市值: h.marketValueTWD }))}
+                margin={{ left: 20, right: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis type="number" tickFormatter={(v: number) => formatTWD(v)} style={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" width={80} style={{ fontSize: 12 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="成本" fill="var(--chart-2)" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="市值" fill="var(--chart-1)" radius={[0, 4, 4, 0]} />
+                <Legend />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>

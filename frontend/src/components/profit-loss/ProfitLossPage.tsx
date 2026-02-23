@@ -9,6 +9,12 @@ import { DateRangeSelector } from './DateRangeSelector'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { ChartTooltip } from '@/components/charts/ChartTooltip'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  ReferenceLine, Cell, Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
 
 // Usage:
 // <ProfitLossPage />
@@ -107,10 +113,42 @@ export function ProfitLossPage() {
         </Card>
       </div>
 
+      {/* Profit/Loss bar chart */}
+      {items.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>各標的損益</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={items.length * 50 + 40}>
+              <BarChart
+                layout="vertical"
+                data={items.map((i) => ({ name: i.name, 損益: i.profit }))}
+                margin={{ left: 20, right: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis type="number" tickFormatter={(v: number) => formatTWD(v)} style={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" width={80} style={{ fontSize: 12 }} />
+                <Tooltip content={<ChartTooltip showSign />} />
+                <ReferenceLine x={0} stroke="var(--muted-foreground)" />
+                <Bar dataKey="損益" radius={[0, 4, 4, 0]}>
+                  {items.map((item) => (
+                    <Cell
+                      key={item.ticker}
+                      fill={item.profit >= 0 ? 'var(--profit-positive)' : 'var(--profit-negative)'}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Per-holding table */}
       <Card>
         <CardHeader>
-          <CardTitle>各標的損益</CardTitle>
+          <CardTitle>損益明細</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
