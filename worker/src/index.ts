@@ -477,6 +477,52 @@ async function handleDeleteBatch(id: string, env: Env): Promise<Response> {
   });
 }
 
+/**
+ * GET /api/search-ticker?q=keyword
+ *
+ * Proxies Yahoo Finance's search API and returns simplified results.
+ */
+async function handleSearchTicker(query: string): Promise<Response> {
+  if (!query || query.length < 1) {
+    return jsonResponse([]);
+  }
+
+  const yahooUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0&enableFuzzyQuery=false`;
+
+  const res = await fetch(yahooUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+
+  if (!res.ok) {
+    return jsonResponse([]);
+  }
+
+  const data = (await res.json()) as {
+    quotes?: Array<{
+      symbol?: string;
+      shortname?: string;
+      longname?: string;
+      quoteType?: string;
+      exchDisp?: string;
+    }>;
+  };
+
+  const quotes = (data.quotes ?? [])
+    .filter((q) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF'))
+    .map((q) => {
+      const symbol = q.symbol ?? '';
+      const market: 'TW' | 'US' = /\.TW[O]?$/.test(symbol) ? 'TW' : 'US';
+      return {
+        ticker: symbol,
+        name: q.shortname ?? q.longname ?? '',
+        market,
+        exchange: q.exchDisp ?? '',
+      };
+    });
+
+  return jsonResponse(quotes);
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -491,6 +537,7 @@ function matchRoute(
   pathname: string,
 ):
   | { route: 'get_portfolio' }
+  | { route: 'search_ticker'; query: string }
   | { route: 'create_batch' }
   | { route: 'update_investment'; id: string }
   | { route: 'delete_investment'; id: string }
@@ -499,6 +546,9 @@ function matchRoute(
   | null {
   if (method === 'GET' && pathname === '/api/portfolio') {
     return { route: 'get_portfolio' };
+  }
+  if (method === 'GET' && pathname === '/api/search-ticker') {
+    return { route: 'search_ticker', query: '' };
   }
   if (method === 'POST' && pathname === '/api/batches') {
     return { route: 'create_batch' };
@@ -560,10 +610,18 @@ export default {
       return errorResponse(`Route not found: ${method} ${pathname}`, 404);
     }
 
+    // Inject query string for search-ticker route.
+    if (matched.route === 'search_ticker') {
+      matched.query = url.searchParams.get('q') ?? '';
+    }
+
     try {
       switch (matched.route) {
         case 'get_portfolio':
           return await handleGetPortfolio(env);
+
+        case 'search_ticker':
+          return await handleSearchTicker(matched.query);
 
         case 'create_batch':
           return await handleCreateBatch(request, env);

@@ -60,3 +60,10 @@ export interface CreateBatchResponse {
   funding_sources: FundingSource[];
   investments: Investment[];
 }
+
+export interface TickerSearchResult {
+  ticker: string;
+  name: string;
+  market: 'TW' | 'US';
+  exchange: string;
+}

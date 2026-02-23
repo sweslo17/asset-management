@@ -4,6 +4,7 @@ import type {
   CreateBatchResponse,
   Investment,
   Batch,
+  TickerSearchResult,
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -78,4 +79,7 @@ export const api = {
         funding_sources_deleted: number;
       };
     }>(`/api/batches/${id}`, { method: 'DELETE' }),
+
+  searchTicker: (query: string) =>
+    request<TickerSearchResult[]>(`/api/search-ticker?q=${encodeURIComponent(query)}`),
 };

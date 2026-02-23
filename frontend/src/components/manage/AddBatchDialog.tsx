@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useCreateBatch } from '@/hooks/useMutations'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import type { CreateBatchRequest } from '@/api/types'
+import type { CreateBatchRequest, TickerSearchResult } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -25,6 +25,7 @@ import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { formatTWD } from '@/utils/currency'
 import { findExchangeRate, parseTags } from '@/utils/dateUtils'
+import { TickerSearch } from './TickerSearch'
 
 interface FundingSourceEntry {
   source_name: string
@@ -185,6 +186,22 @@ export function AddBatchDialog() {
     )
   }
 
+  /** Handle selecting a ticker from Yahoo Finance search results */
+  const handleTickerSelect = (index: number, result: TickerSearchResult) => {
+    setInvestments((prev) =>
+      prev.map((inv, i) => {
+        if (i !== index) return inv
+        return {
+          ...inv,
+          ticker: result.ticker,
+          name: result.name,
+          market: result.market,
+          exchange_rate: resolveExchangeRate(result.market, date),
+        }
+      })
+    )
+  }
+
   /** Toggle a tag in a comma-separated tags string */
   const toggleTag = (index: number, tag: string) => {
     setInvestments((prev) =>
@@ -311,11 +328,10 @@ export function AddBatchDialog() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs">代碼</Label>
-                    <Input
+                    <TickerSearch
                       value={inv.ticker}
-                      onChange={(e) => updateInvestment(i, 'ticker', e.target.value)}
-                      placeholder="0050.TW"
-                      list="tickers"
+                      onChange={(v) => updateInvestment(i, 'ticker', v)}
+                      onSelect={(r) => handleTickerSelect(i, r)}
                     />
                   </div>
                   <div className="space-y-1">
