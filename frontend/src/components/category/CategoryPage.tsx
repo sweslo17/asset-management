@@ -1,12 +1,38 @@
 import { useState } from 'react'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateInvestmentValues, calculateCategorySummary } from '@/utils/calculations'
+import { calculateInvestmentValues, calculateCategorySummary, type InvestmentWithValue } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+
+interface AggregatedHolding {
+  ticker: string
+  name: string
+  marketValueTWD: number
+  profitTWD: number
+}
+
+function aggregateByTicker(investments: InvestmentWithValue[]): AggregatedHolding[] {
+  const map = new Map<string, AggregatedHolding>()
+  for (const inv of investments) {
+    const existing = map.get(inv.ticker)
+    if (existing) {
+      existing.marketValueTWD += inv.marketValueTWD
+      existing.profitTWD += inv.profitTWD
+    } else {
+      map.set(inv.ticker, {
+        ticker: inv.ticker,
+        name: inv.name,
+        marketValueTWD: inv.marketValueTWD,
+        profitTWD: inv.profitTWD,
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.marketValueTWD - a.marketValueTWD)
+}
 
 export function CategoryPage() {
   const { data, isLoading, error } = usePortfolioData()
@@ -70,18 +96,18 @@ export function CategoryPage() {
                 </div>
               </div>
 
-              {/* Expanded: show individual investments */}
+              {/* Expanded: show holdings grouped by ticker */}
               {expandedTags.has(cat.tag) && (
                 <div className="mt-4 space-y-2 border-t border-border pt-3">
-                  {cat.investments.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between text-sm">
+                  {aggregateByTicker(cat.investments).map((h) => (
+                    <div key={h.ticker} className="flex items-center justify-between text-sm">
                       <div>
-                        <span className="font-medium">{inv.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{inv.ticker}</span>
+                        <span className="font-medium">{h.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{h.ticker}</span>
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="tabular-nums">{formatTWD(inv.marketValueTWD)}</span>
-                        <CurrencyDisplay value={inv.profitTWD} showSign className="text-xs" />
+                        <span className="tabular-nums">{formatTWD(h.marketValueTWD)}</span>
+                        <CurrencyDisplay value={h.profitTWD} showSign className="text-xs" />
                       </div>
                     </div>
                   ))}
