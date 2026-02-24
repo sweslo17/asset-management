@@ -226,7 +226,7 @@ export interface TimeSeriesPoint {
   totalCost: number;   // sum of investment costs (TWD)
 }
 
-/** Generate portfolio value/cost time series using only dates where price data exists */
+/** Generate portfolio value/cost time series from investment and price dates */
 export function generatePortfolioTimeSeries(
   investments: Investment[],
   prices: PriceRecord[],
@@ -234,10 +234,15 @@ export function generatePortfolioTimeSeries(
   startDate?: string,
   endDate?: string,
 ): TimeSeriesPoint[] {
-  // Collect unique dates from prices
+  // Collect unique dates from both prices and investments
+  // This ensures the chart starts from the first investment date,
+  // even before price data exists (fallback to cost as market value)
   const dateSet = new Set<string>();
   for (const p of prices) {
     dateSet.add(p.date);
+  }
+  for (const inv of investments) {
+    dateSet.add(inv.date);
   }
 
   let dates = Array.from(dateSet).sort();

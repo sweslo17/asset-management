@@ -60,16 +60,20 @@ export function TrendChart({
         <Tooltip content={<ChartTooltip showSign={showProfitArea} />} />
 
         {showProfitArea ? (
-          /* Profit mode: single area showing value - cost */
-          <Area
-            type="monotone"
-            dataKey="profit"
-            name="損益"
-            stroke="var(--chart-1)"
-            fill="var(--chart-1)"
-            fillOpacity={0.15}
-            strokeWidth={2}
-          />
+          <>
+            {/* Zero reference line for break-even */}
+            <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeWidth={1} />
+            {/* Profit mode: single area showing value - cost */}
+            <Area
+              type="monotone"
+              dataKey="profit"
+              name="損益"
+              stroke="var(--chart-1)"
+              fill="var(--chart-1)"
+              fillOpacity={0.15}
+              strokeWidth={2}
+            />
+          </>
         ) : (
           <>
             {/* Value area */}
