@@ -251,8 +251,8 @@ export function generatePortfolioTimeSeries(
   if (startDate) dates = dates.filter((d) => d >= startDate);
   if (endDate) dates = dates.filter((d) => d <= endDate);
 
-  return dates.map((date) => {
-    // Only include investments acquired by this date
+  // Compute values for dates where we have data
+  const sparse = dates.map((date) => {
     const activeInvestments = investments.filter((inv) => inv.date <= date);
     const valued = calculateInvestmentValues(activeInvestments, prices, exchangeRates, date);
 
@@ -261,4 +261,27 @@ export function generatePortfolioTimeSeries(
 
     return { date, totalValue, totalCost };
   });
+
+  if (sparse.length === 0) return [];
+
+  // Fill daily gaps by carrying forward the last known value
+  const filled: TimeSeriesPoint[] = [];
+  for (let i = 0; i < sparse.length; i++) {
+    filled.push(sparse[i]);
+    if (i < sparse.length - 1) {
+      const current = new Date(sparse[i].date);
+      const next = new Date(sparse[i + 1].date);
+      current.setDate(current.getDate() + 1);
+      while (current < next) {
+        filled.push({
+          date: current.toISOString().slice(0, 10),
+          totalValue: sparse[i].totalValue,
+          totalCost: sparse[i].totalCost,
+        });
+        current.setDate(current.getDate() + 1);
+      }
+    }
+  }
+
+  return filled;
 }

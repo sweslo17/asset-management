@@ -83,7 +83,13 @@ export function DashboardPage() {
   const totalProfitPct = totalCost !== 0 ? totalProfit / totalCost : 0
 
   const timeSeries = generatePortfolioTimeSeries(data.investments, data.prices, data.exchange_rates)
-  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({ date: b.date, label: b.description }))
+  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({
+    date: b.date,
+    label: b.description,
+    amount: data.funding_sources
+      .filter((fs) => fs.batch_id === b.batch_id)
+      .reduce((sum, fs) => sum + fs.amount_twd, 0),
+  }))
 
   return (
     <div className="space-y-6">
@@ -134,7 +140,7 @@ export function DashboardPage() {
           <CardTitle>資產趨勢</CardTitle>
         </CardHeader>
         <CardContent>
-          <TrendChart data={timeSeries} batches={batchMarkers} />
+          <TrendChart data={timeSeries} batches={batchMarkers} showCostLine={false} />
         </CardContent>
       </Card>
 

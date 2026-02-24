@@ -23,7 +23,13 @@ export function BatchPage() {
   ).sort((a, b) => a.date.localeCompare(b.date))
 
   const timeSeries = generatePortfolioTimeSeries(data.investments, data.prices, data.exchange_rates)
-  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({ date: b.date, label: b.description }))
+  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({
+    date: b.date,
+    label: b.description,
+    amount: data.funding_sources
+      .filter((fs) => fs.batch_id === b.batch_id)
+      .reduce((sum, fs) => sum + fs.amount_twd, 0),
+  }))
 
   const toggleExpand = (batchId: string) => {
     setExpandedBatches((prev) => {
@@ -47,7 +53,7 @@ export function BatchPage() {
           <CardTitle>資產趨勢</CardTitle>
         </CardHeader>
         <CardContent>
-          <TrendChart data={timeSeries} batches={batchMarkers} />
+          <TrendChart data={timeSeries} batches={batchMarkers} showCostLine={false} />
         </CardContent>
       </Card>
 

@@ -9,6 +9,7 @@ import {
 export interface BatchMarker {
   date: string
   label: string
+  amount?: number  // funded amount (TWD) to display at marker
 }
 
 interface TrendChartProps {
@@ -43,7 +44,7 @@ export function TrendChart({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 10 }}>
+      <ComposedChart data={chartData} margin={{ top: 24, right: 20, left: 20, bottom: 10 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis
           dataKey="date"
@@ -111,7 +112,7 @@ export function TrendChart({
             strokeOpacity={0.6}
           >
             <Label
-              value={b.label}
+              value={b.amount ? `${b.label} (${formatTWD(b.amount)})` : b.label}
               position="top"
               fill="var(--muted-foreground)"
               fontSize={10}
