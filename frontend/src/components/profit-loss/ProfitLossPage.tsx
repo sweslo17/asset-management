@@ -9,6 +9,7 @@ import { DateRangeSelector } from './DateRangeSelector'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { HoldingDetailDialog } from '@/components/holdings/HoldingDetailDialog'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { TrendChart, type BatchMarker } from '@/components/charts/TrendChart'
 import {
@@ -38,6 +39,8 @@ export function ProfitLossPage() {
     if (!data?.prices.length) return ''
     return getLatestDate(data.prices)
   }, [data])
+
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null)
 
   // Empty string means "use the default derived from data"
   const [startDate, setStartDate] = useState('')
@@ -183,7 +186,7 @@ export function ProfitLossPage() {
             </TableHeader>
             <TableBody>
               {items.map((item) => (
-                <TableRow key={item.ticker}>
+                <TableRow key={item.ticker} className="cursor-pointer" onClick={() => setSelectedTicker(item.ticker)}>
                   {/* Name + ticker + market badge */}
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -239,6 +242,8 @@ export function ProfitLossPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <HoldingDetailDialog ticker={selectedTicker} onClose={() => setSelectedTicker(null)} />
     </div>
   )
 }

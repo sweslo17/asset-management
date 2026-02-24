@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
 import { calculateInvestmentValues, generatePortfolioTimeSeries, type InvestmentWithValue } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
@@ -9,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { TrendChart, type BatchMarker } from '@/components/charts/TrendChart'
+import { HoldingDetailDialog } from '@/components/holdings/HoldingDetailDialog'
 import {
   PieChart, Pie, Cell, Legend, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -64,6 +66,7 @@ function aggregateByTicker(investments: InvestmentWithValue[]): AggregatedHoldin
 
 export function DashboardPage() {
   const { data, isLoading, error } = usePortfolioData()
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null)
 
   if (isLoading) return <LoadingSpinner />
   if (error || !data) return <div className="text-destructive p-8">載入失敗: {error?.message}</div>
@@ -229,7 +232,7 @@ export function DashboardPage() {
             </TableHeader>
             <TableBody>
               {holdings.map((h) => (
-                <TableRow key={h.ticker}>
+                <TableRow key={h.ticker} className="cursor-pointer" onClick={() => setSelectedTicker(h.ticker)}>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div>
@@ -259,6 +262,8 @@ export function DashboardPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <HoldingDetailDialog ticker={selectedTicker} onClose={() => setSelectedTicker(null)} />
     </div>
   )
 }

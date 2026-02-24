@@ -7,6 +7,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { HoldingDetailDialog } from '@/components/holdings/HoldingDetailDialog'
 
 interface AggregatedHolding {
   ticker: string
@@ -37,6 +38,7 @@ function aggregateByTicker(investments: InvestmentWithValue[]): AggregatedHoldin
 export function CategoryPage() {
   const { data, isLoading, error } = usePortfolioData()
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set())
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null)
 
   if (isLoading) return <LoadingSpinner />
   if (error || !data) return <div className="text-destructive p-8">載入失敗</div>
@@ -100,7 +102,11 @@ export function CategoryPage() {
               {expandedTags.has(cat.tag) && (
                 <div className="mt-4 space-y-2 border-t border-border pt-3">
                   {aggregateByTicker(cat.investments).map((h) => (
-                    <div key={h.ticker} className="flex items-center justify-between text-sm">
+                    <div
+                      key={h.ticker}
+                      className="flex items-center justify-between text-sm cursor-pointer rounded px-1 -mx-1 hover:bg-muted/50"
+                      onClick={(e) => { e.stopPropagation(); setSelectedTicker(h.ticker) }}
+                    >
                       <div>
                         <span className="font-medium">{h.name}</span>
                         <span className="ml-2 text-xs text-muted-foreground">{h.ticker}</span>
@@ -117,6 +123,8 @@ export function CategoryPage() {
           </Card>
         ))}
       </div>
+
+      <HoldingDetailDialog ticker={selectedTicker} onClose={() => setSelectedTicker(null)} />
     </div>
   )
 }
