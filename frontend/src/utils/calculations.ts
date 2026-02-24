@@ -218,3 +218,42 @@ export function calculateProfitLoss(
     };
   });
 }
+
+/** A single data point for portfolio time series */
+export interface TimeSeriesPoint {
+  date: string;
+  totalValue: number;  // sum of market values (TWD)
+  totalCost: number;   // sum of investment costs (TWD)
+}
+
+/** Generate portfolio value/cost time series using only dates where price data exists */
+export function generatePortfolioTimeSeries(
+  investments: Investment[],
+  prices: PriceRecord[],
+  exchangeRates: ExchangeRate[],
+  startDate?: string,
+  endDate?: string,
+): TimeSeriesPoint[] {
+  // Collect unique dates from prices
+  const dateSet = new Set<string>();
+  for (const p of prices) {
+    dateSet.add(p.date);
+  }
+
+  let dates = Array.from(dateSet).sort();
+
+  // Filter to date range if specified
+  if (startDate) dates = dates.filter((d) => d >= startDate);
+  if (endDate) dates = dates.filter((d) => d <= endDate);
+
+  return dates.map((date) => {
+    // Only include investments acquired by this date
+    const activeInvestments = investments.filter((inv) => inv.date <= date);
+    const valued = calculateInvestmentValues(activeInvestments, prices, exchangeRates, date);
+
+    const totalValue = valued.reduce((sum, inv) => sum + inv.marketValueTWD, 0);
+    const totalCost = valued.reduce((sum, inv) => sum + inv.costTWD, 0);
+
+    return { date, totalValue, totalCost };
+  });
+}

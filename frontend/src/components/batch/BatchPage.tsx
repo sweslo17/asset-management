@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateBatchSummary } from '@/utils/calculations'
+import { calculateBatchSummary, generatePortfolioTimeSeries } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { TrendChart, type BatchMarker } from '@/components/charts/TrendChart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export function BatchPage() {
@@ -20,6 +21,9 @@ export function BatchPage() {
     data.batches, data.funding_sources, data.investments,
     data.prices, data.exchange_rates, targetDate,
   ).sort((a, b) => a.date.localeCompare(b.date))
+
+  const timeSeries = generatePortfolioTimeSeries(data.investments, data.prices, data.exchange_rates)
+  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({ date: b.date, label: b.description }))
 
   const toggleExpand = (batchId: string) => {
     setExpandedBatches((prev) => {
@@ -36,6 +40,16 @@ export function BatchPage() {
         <h1 className="text-2xl font-semibold tracking-tight">投入紀錄</h1>
         <p className="text-sm text-muted-foreground">各次投入的比例分配損益</p>
       </div>
+
+      {/* Portfolio trend with batch injection markers */}
+      <Card>
+        <CardHeader>
+          <CardTitle>資產趨勢</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TrendChart data={timeSeries} batches={batchMarkers} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="pt-6">

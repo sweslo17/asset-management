@@ -1,5 +1,5 @@
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateInvestmentValues, type InvestmentWithValue } from '@/utils/calculations'
+import { calculateInvestmentValues, generatePortfolioTimeSeries, type InvestmentWithValue } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
+import { TrendChart, type BatchMarker } from '@/components/charts/TrendChart'
 import {
   PieChart, Pie, Cell, Legend, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -81,6 +82,9 @@ export function DashboardPage() {
   const totalProfit = totalValue - totalCost
   const totalProfitPct = totalCost !== 0 ? totalProfit / totalCost : 0
 
+  const timeSeries = generatePortfolioTimeSeries(data.investments, data.prices, data.exchange_rates)
+  const batchMarkers: BatchMarker[] = data.batches.map((b) => ({ date: b.date, label: b.description }))
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -123,6 +127,16 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Trend chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>資產趨勢</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TrendChart data={timeSeries} batches={batchMarkers} />
+        </CardContent>
+      </Card>
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">

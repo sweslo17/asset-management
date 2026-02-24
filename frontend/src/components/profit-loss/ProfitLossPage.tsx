@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateProfitLoss } from '@/utils/calculations'
+import { calculateProfitLoss, generatePortfolioTimeSeries } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
+import { TrendChart, type BatchMarker } from '@/components/charts/TrendChart'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   ReferenceLine, Cell, Tooltip,
@@ -56,6 +57,13 @@ export function ProfitLossPage() {
     effectiveStart,
     effectiveEnd,
   ).sort((a, b) => b.profit - a.profit)
+
+  const profitTimeSeries = generatePortfolioTimeSeries(
+    data.investments, data.prices, data.exchange_rates, effectiveStart, effectiveEnd,
+  )
+  const profitBatchMarkers: BatchMarker[] = data.batches
+    .filter((b) => b.date >= effectiveStart && b.date <= effectiveEnd)
+    .map((b) => ({ date: b.date, label: b.description }))
 
   const totalStart = items.reduce((s, i) => s + i.startValue, 0)
   const totalEnd = items.reduce((s, i) => s + i.endValue, 0)
@@ -112,6 +120,18 @@ export function ProfitLossPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Profit trend chart */}
+      {profitTimeSeries.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>損益趨勢</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrendChart data={profitTimeSeries} batches={profitBatchMarkers} showProfitArea showCostLine={false} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Profit/Loss bar chart */}
       {items.length > 0 && (
