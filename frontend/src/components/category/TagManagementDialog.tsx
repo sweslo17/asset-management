@@ -216,7 +216,7 @@ export function TagManagementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] sm:max-w-2xl flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>管理標籤維度</DialogTitle>
           <DialogDescription>
@@ -300,7 +300,7 @@ export function TagManagementDialog({
                 <Separator className="mb-3" />
 
                 {/* Ticker assignment table */}
-                <div className="space-y-2">
+                <div className="space-y-2 overflow-y-auto max-h-[45vh] pr-1">
                   {uniqueTickers.map((t) => {
                     const currentTag = getTickerTag(t.ticker)
                     const isNewTagMode = newTagInputs.has(t.ticker)
