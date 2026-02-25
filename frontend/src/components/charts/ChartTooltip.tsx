@@ -11,9 +11,10 @@ interface ChartTooltipProps {
   payload?: TooltipPayloadItem[]
   label?: string
   showSign?: boolean
+  formatValue?: (value: number) => string
 }
 
-export function ChartTooltip({ active, payload, label, showSign }: ChartTooltipProps) {
+export function ChartTooltip({ active, payload, label, showSign, formatValue }: ChartTooltipProps) {
   if (!active || !payload?.length) return null
 
   return (
@@ -28,7 +29,7 @@ export function ChartTooltip({ active, payload, label, showSign }: ChartTooltipP
           <span className="text-muted-foreground">{entry.name}:</span>
           <span className="font-medium tabular-nums">
             {showSign && entry.value > 0 ? '+' : ''}
-            {formatTWD(entry.value)}
+            {formatValue ? formatValue(entry.value) : formatTWD(entry.value)}
           </span>
         </div>
       ))}

@@ -71,6 +71,7 @@ export function CategoryPage() {
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set())
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null)
   const [tagDialogOpen, setTagDialogOpen] = useState(false)
+  const [trendMode, setTrendMode] = useState<'value' | 'percent'>('value')
   const [activeDimension, setActiveDimension] = useState<string>('')
 
   const tickerTags = data?.ticker_tags ?? []
@@ -96,6 +97,22 @@ export function CategoryPage() {
       tickerTags, effectiveDimension,
     )
   }, [data, tickerTags, effectiveDimension])
+
+  const dimensionPercentSeries = useMemo(() => {
+    return dimensionTimeSeries.map((point) => {
+      const newPoint: Record<string, string | number> = { date: point.date }
+      let total = 0
+      for (const [key, val] of Object.entries(point)) {
+        if (key !== 'date' && typeof val === 'number') total += val
+      }
+      for (const [key, val] of Object.entries(point)) {
+        if (key !== 'date' && typeof val === 'number') {
+          newPoint[key] = total > 0 ? (val / total) * 100 : 0
+        }
+      }
+      return newPoint
+    })
+  }, [dimensionTimeSeries])
 
   if (isLoading) return <LoadingSpinner />
   if (error || !data) return <div className="text-destructive p-8">載入失敗</div>
@@ -226,11 +243,29 @@ export function CategoryPage() {
           {dimensionTimeSeries.length > 0 && tagNames.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>{effectiveDimension} 趨勢</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>{effectiveDimension} 趨勢</CardTitle>
+                  <div className="flex gap-1">
+                    <Button
+                      variant={trendMode === 'value' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTrendMode('value')}
+                    >
+                      市值
+                    </Button>
+                    <Button
+                      variant={trendMode === 'percent' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTrendMode('percent')}
+                    >
+                      佔比
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={350}>
-                  <ComposedChart data={dimensionTimeSeries}>
+                  <ComposedChart data={trendMode === 'value' ? dimensionTimeSeries : dimensionPercentSeries}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis
                       dataKey="date"
@@ -239,10 +274,17 @@ export function CategoryPage() {
                     />
                     <YAxis
                       tick={{ fontSize: 12 }}
-                      tickFormatter={(v: number) => formatTWD(v)}
+                      tickFormatter={trendMode === 'value'
+                        ? (v: number) => formatTWD(v)
+                        : (v: number) => `${v.toFixed(0)}%`}
                       width={90}
+                      domain={trendMode === 'percent' ? [0, 100] : undefined}
                     />
-                    <Tooltip content={<ChartTooltip />} />
+                    <Tooltip
+                      content={trendMode === 'value'
+                        ? <ChartTooltip />
+                        : <ChartTooltip formatValue={(v: number) => `${v.toFixed(1)}%`} />}
+                    />
                     <Legend />
                     {tagNames.map((tag, i) => (
                       <Area
