@@ -89,6 +89,14 @@ export function CategoryPage() {
     ? activeDimension
     : dimensions[0] ?? ''
 
+  const dimensionTimeSeries = useMemo(() => {
+    if (!effectiveDimension || !data) return []
+    return generateDimensionTimeSeries(
+      data.investments, data.prices, data.exchange_rates,
+      tickerTags, effectiveDimension,
+    )
+  }, [data, tickerTags, effectiveDimension])
+
   if (isLoading) return <LoadingSpinner />
   if (error || !data) return <div className="text-destructive p-8">載入失敗</div>
 
@@ -103,16 +111,7 @@ export function CategoryPage() {
     ? calculateDimensionSummary(investmentsWithValue, tickerTags, effectiveDimension)
     : []
 
-  const dimensionTimeSeries = useMemo(() => {
-    if (!effectiveDimension || !data) return []
-    return generateDimensionTimeSeries(
-      data.investments, data.prices, data.exchange_rates,
-      tickerTags, effectiveDimension,
-    )
-  }, [data, tickerTags, effectiveDimension])
-
-  // Extract tag names from groups for chart rendering (preserves sort order by value)
-  const tagNames = useMemo(() => groups.map((g) => g.tag), [groups])
+  const tagNames = groups.map((g) => g.tag)
 
   const untaggedGroup = groups.find((g) => g.tag === '未分類')
   const untaggedCount = untaggedGroup?.tickers.length ?? 0
