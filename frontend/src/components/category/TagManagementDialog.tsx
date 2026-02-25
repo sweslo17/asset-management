@@ -228,7 +228,7 @@ export function TagManagementDialog({
         {allDimensions.length > 0 ? (
           <Tabs value={activeDimension} onValueChange={setActiveDimension}>
             <div className="flex items-center gap-2">
-              <TabsList className="flex-1 overflow-x-auto">
+              <TabsList className="flex-1 overflow-hidden">
                 {allDimensions.map((dim) => (
                   <TabsTrigger key={dim} value={dim}>
                     {dim}
