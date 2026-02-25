@@ -286,6 +286,84 @@ export function calculateProfitLoss(
   });
 }
 
+/** A single data point for dimension time series (per-tag values over time) */
+export interface DimensionTimeSeriesPoint {
+  date: string;
+  [tag: string]: string | number; // each tag name maps to its market value
+}
+
+/** Generate per-tag market value time series for a given dimension */
+export function generateDimensionTimeSeries(
+  investments: Investment[],
+  prices: PriceRecord[],
+  exchangeRates: ExchangeRate[],
+  tickerTags: TickerTag[],
+  dimension: string,
+): DimensionTimeSeriesPoint[] {
+  // Build ticker → tag lookup for the specified dimension
+  const tickerToTag = new Map<string, string>();
+  for (const tt of tickerTags) {
+    if (tt.dimension === dimension) {
+      tickerToTag.set(tt.ticker, tt.tag);
+    }
+  }
+
+  // Collect all unique dates from prices + investments
+  const dateSet = new Set<string>();
+  for (const p of prices) dateSet.add(p.date);
+  for (const inv of investments) dateSet.add(inv.date);
+  const dates = Array.from(dateSet).sort();
+
+  if (dates.length === 0) return [];
+
+  // Collect all tags that appear (including 未分類)
+  const allTags = new Set<string>();
+  for (const inv of investments) {
+    allTags.add(tickerToTag.get(inv.ticker) ?? '未分類');
+  }
+
+  // Compute sparse data points
+  const sparse = dates.map((date) => {
+    const activeInvestments = investments.filter((inv) => inv.date <= date);
+    const valued = calculateInvestmentValues(activeInvestments, prices, exchangeRates, date);
+
+    // Aggregate by tag
+    const tagValues = new Map<string, number>();
+    for (const tag of allTags) tagValues.set(tag, 0);
+
+    for (const inv of valued) {
+      const tag = tickerToTag.get(inv.ticker) ?? '未分類';
+      tagValues.set(tag, (tagValues.get(tag) ?? 0) + inv.marketValueTWD);
+    }
+
+    const point: DimensionTimeSeriesPoint = { date };
+    for (const [tag, value] of tagValues) {
+      point[tag] = value;
+    }
+    return point;
+  });
+
+  // Fill daily gaps with carry-forward
+  const filled: DimensionTimeSeriesPoint[] = [];
+  for (let i = 0; i < sparse.length; i++) {
+    filled.push(sparse[i]);
+    if (i < sparse.length - 1) {
+      const current = new Date(sparse[i].date);
+      const next = new Date(sparse[i + 1].date);
+      current.setDate(current.getDate() + 1);
+      while (current < next) {
+        filled.push({
+          ...sparse[i],
+          date: current.toISOString().slice(0, 10),
+        });
+        current.setDate(current.getDate() + 1);
+      }
+    }
+  }
+
+  return filled;
+}
+
 /** A single data point for portfolio time series */
 export interface TimeSeriesPoint {
   date: string;

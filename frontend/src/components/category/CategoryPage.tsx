@@ -3,6 +3,7 @@ import { usePortfolioData } from '@/hooks/usePortfolioData'
 import {
   calculateInvestmentValues,
   calculateDimensionSummary,
+  generateDimensionTimeSeries,
   type InvestmentWithValue,
   type DimensionGroup,
 } from '@/utils/calculations'
@@ -19,7 +20,8 @@ import { TagManagementDialog } from './TagManagementDialog'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import {
   PieChart, Pie, Cell, Legend, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, ComposedChart, Area,
+  XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
 const CHART_COLORS = [
@@ -100,6 +102,17 @@ export function CategoryPage() {
   const groups: DimensionGroup[] = effectiveDimension
     ? calculateDimensionSummary(investmentsWithValue, tickerTags, effectiveDimension)
     : []
+
+  const dimensionTimeSeries = useMemo(() => {
+    if (!effectiveDimension || !data) return []
+    return generateDimensionTimeSeries(
+      data.investments, data.prices, data.exchange_rates,
+      tickerTags, effectiveDimension,
+    )
+  }, [data, tickerTags, effectiveDimension])
+
+  // Extract tag names from groups for chart rendering (preserves sort order by value)
+  const tagNames = useMemo(() => groups.map((g) => g.tag), [groups])
 
   const untaggedGroup = groups.find((g) => g.tag === '未分類')
   const untaggedCount = untaggedGroup?.tickers.length ?? 0
@@ -205,6 +218,45 @@ export function CategoryPage() {
                       }}
                     />
                   </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Stacked area trend chart */}
+          {dimensionTimeSeries.length > 0 && tagNames.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{effectiveDimension} 趨勢</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={350}>
+                  <ComposedChart data={dimensionTimeSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(d: string) => d.slice(5)}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(v: number) => formatTWD(v)}
+                      width={90}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Legend />
+                    {tagNames.map((tag, i) => (
+                      <Area
+                        key={tag}
+                        type="monotone"
+                        dataKey={tag}
+                        stackId="1"
+                        fill={CHART_COLORS[i % CHART_COLORS.length]}
+                        stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                        fillOpacity={0.6}
+                      />
+                    ))}
+                  </ComposedChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
