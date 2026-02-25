@@ -84,3 +84,13 @@ export function useRenameDimension() {
     },
   });
 }
+
+export function useBackfill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.backfill(),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['portfolio'] });
+    },
+  });
+}

@@ -147,6 +147,14 @@ export interface RenameDimensionRequest {
   new_name: string;
 }
 
+/**
+ * Response body for POST /api/backfill.
+ */
+export interface BackfillResponse {
+  prices_added: number;
+  rates_added: number;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helper types
 // ---------------------------------------------------------------------------

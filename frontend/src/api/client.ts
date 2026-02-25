@@ -1,4 +1,5 @@
 import type {
+  BackfillResponse,
   PortfolioData,
   CreateBatchRequest,
   CreateBatchResponse,
@@ -102,4 +103,7 @@ export const api = {
       `/api/dimensions/${encodeURIComponent(name)}/rename`,
       { method: 'PUT', body: JSON.stringify({ new_name: newName } satisfies RenameDimensionRequest) },
     ),
+
+  backfill: () =>
+    request<BackfillResponse>('/api/backfill', { method: 'POST' }),
 };

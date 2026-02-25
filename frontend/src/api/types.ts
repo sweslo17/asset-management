@@ -82,3 +82,8 @@ export interface TickerSearchResult {
   market: 'TW' | 'US';
   exchange: string;
 }
+
+export interface BackfillResponse {
+  prices_added: number;
+  rates_added: number;
+}

@@ -11,6 +11,7 @@
  *   PUT    /api/ticker-tags             → Batch upsert ticker tag assignments
  *   DELETE /api/dimensions/:name        → Delete all tags in a dimension
  *   PUT    /api/dimensions/:name/rename → Rename a dimension
+ *   POST   /api/backfill               → Backfill historical prices & rates
  */
 
 import {
@@ -23,6 +24,7 @@ import {
   updateRow,
 } from './sheets';
 import type {
+  BackfillResponse,
   Batch,
   CreateBatchRequest,
   Env,
@@ -36,6 +38,7 @@ import type {
   UpdateInvestmentRequest,
   UpsertTickerTagsRequest,
 } from './types';
+import { fetchYahooPrices, fetchYahooRates } from './yahoo';
 
 // ---------------------------------------------------------------------------
 // CORS
@@ -676,6 +679,115 @@ async function handleRenameDimension(
 }
 
 // ---------------------------------------------------------------------------
+// Backfill handler
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/backfill
+ *
+ * Fetches historical prices for all invested tickers and USD/TWD exchange
+ * rates from Yahoo Finance, deduplicates against existing data, and appends
+ * new records to the Google Sheets.
+ */
+async function handleBackfill(env: Env): Promise<Response> {
+  // 1. Read investments, existing prices, and existing exchange rates in parallel.
+  const [investmentRows, priceRows, exchangeRateRows] = await Promise.all([
+    readSheet('investments', env),
+    readSheet('prices', env),
+    readSheet('exchange_rates', env),
+  ]);
+
+  // 2. Determine each ticker's earliest investment date.
+  const tickerEarliestDate = new Map<string, string>();
+  for (const row of investmentRows) {
+    const ticker = field(row, 'ticker');
+    const date = field(row, 'date');
+    if (!ticker || !date) continue;
+
+    const existing = tickerEarliestDate.get(ticker);
+    if (!existing || date < existing) {
+      tickerEarliestDate.set(ticker, date);
+    }
+  }
+
+  if (tickerEarliestDate.size === 0) {
+    return jsonResponse({ prices_added: 0, rates_added: 0 } satisfies BackfillResponse);
+  }
+
+  // 3. Build existing data sets for deduplication.
+  const existingPriceKeys = new Set<string>();
+  for (const row of priceRows) {
+    const ticker = field(row, 'ticker');
+    const date = field(row, 'date');
+    if (ticker && date) existingPriceKeys.add(`${ticker}|${date}`);
+  }
+
+  const existingRateDates = new Set<string>();
+  for (const row of exchangeRateRows) {
+    const date = field(row, 'date');
+    if (date) existingRateDates.add(date);
+  }
+
+  // 4. Fetch prices for all tickers in parallel.
+  const tickerEntries = Array.from(tickerEarliestDate.entries());
+  const priceResults = await Promise.all(
+    tickerEntries.map(([ticker, startDate]) =>
+      fetchYahooPrices(ticker, startDate).catch((err) => {
+        console.error(`[Backfill] Failed to fetch prices for ${ticker}: ${err}`);
+        return [];
+      }),
+    ),
+  );
+
+  // 5. Fetch exchange rates from the global earliest date.
+  const allDates = Array.from(tickerEarliestDate.values());
+  const globalEarliestDate = allDates.reduce((a, b) => (a < b ? a : b));
+
+  const rateResults = await fetchYahooRates(globalEarliestDate).catch((err) => {
+    console.error(`[Backfill] Failed to fetch exchange rates: ${err}`);
+    return [];
+  });
+
+  // 6. Deduplicate prices.
+  const newPriceRows: string[][] = [];
+  for (const records of priceResults) {
+    for (const rec of records) {
+      const key = `${rec.ticker}|${rec.date}`;
+      if (!existingPriceKeys.has(key)) {
+        newPriceRows.push([rec.ticker, rec.date, String(rec.close)]);
+        existingPriceKeys.add(key); // prevent duplicates within the same batch
+      }
+    }
+  }
+
+  // 7. Deduplicate exchange rates.
+  const newRateRows: string[][] = [];
+  for (const rec of rateResults) {
+    if (!existingRateDates.has(rec.date)) {
+      newRateRows.push([rec.date, String(rec.usd_twd)]);
+      existingRateDates.add(rec.date);
+    }
+  }
+
+  // 8. Append new rows to sheets.
+  if (newPriceRows.length > 0) {
+    await appendRows('prices', newPriceRows, env);
+  }
+  if (newRateRows.length > 0) {
+    await appendRows('exchange_rates', newRateRows, env);
+  }
+
+  const result: BackfillResponse = {
+    prices_added: newPriceRows.length,
+    rates_added: newRateRows.length,
+  };
+
+  console.log(`[Backfill] Completed: ${result.prices_added} prices, ${result.rates_added} rates added.`);
+
+  return jsonResponse(result);
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -698,6 +810,7 @@ function matchRoute(
   | { route: 'upsert_ticker_tags' }
   | { route: 'delete_dimension'; name: string }
   | { route: 'rename_dimension'; name: string }
+  | { route: 'backfill' }
   | null {
   if (method === 'GET' && pathname === '/api/portfolio') {
     return { route: 'get_portfolio' };
@@ -710,6 +823,9 @@ function matchRoute(
   }
   if (method === 'PUT' && pathname === '/api/ticker-tags') {
     return { route: 'upsert_ticker_tags' };
+  }
+  if (method === 'POST' && pathname === '/api/backfill') {
+    return { route: 'backfill' };
   }
 
   const investmentMatch = pathname.match(/^\/api\/investments\/([^/]+)$/);
@@ -816,6 +932,9 @@ export default {
 
         case 'rename_dimension':
           return await handleRenameDimension(matched.name, request, env);
+
+        case 'backfill':
+          return await handleBackfill(env);
 
         default: {
           // TypeScript exhaustiveness check.
