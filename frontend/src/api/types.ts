@@ -40,6 +40,12 @@ export interface Metadata {
   value: string;
 }
 
+export interface TickerTag {
+  ticker: string;
+  dimension: string;
+  tag: string;
+}
+
 export interface PortfolioData {
   batches: Batch[];
   funding_sources: FundingSource[];
@@ -47,6 +53,15 @@ export interface PortfolioData {
   prices: PriceRecord[];
   exchange_rates: ExchangeRate[];
   metadata: Metadata[];
+  ticker_tags: TickerTag[];
+}
+
+export interface UpsertTickerTagsRequest {
+  assignments: TickerTag[];
+}
+
+export interface RenameDimensionRequest {
+  new_name: string;
 }
 
 export interface CreateBatchRequest {

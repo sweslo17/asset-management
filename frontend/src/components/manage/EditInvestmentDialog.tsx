@@ -42,7 +42,6 @@ export function EditInvestmentDialog({
     price_per_unit: '',
     exchange_rate: '',
     fees: '',
-    tags: '',
   })
 
   useEffect(() => {
@@ -55,7 +54,6 @@ export function EditInvestmentDialog({
         price_per_unit: String(investment.price_per_unit),
         exchange_rate: String(investment.exchange_rate),
         fees: String(investment.fees),
-        tags: investment.tags,
       })
     }
   }, [investment])
@@ -73,7 +71,6 @@ export function EditInvestmentDialog({
         price_per_unit: Number(form.price_per_unit),
         exchange_rate: Number(form.exchange_rate),
         fees: Number(form.fees),
-        tags: form.tags,
       },
     })
     onOpenChange(false)
@@ -157,13 +154,6 @@ export function EditInvestmentDialog({
               type="number"
               value={form.fees}
               onChange={(e) => update('fees', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">標籤</Label>
-            <Input
-              value={form.tags}
-              onChange={(e) => update('tags', e.target.value)}
             />
           </div>
         </div>

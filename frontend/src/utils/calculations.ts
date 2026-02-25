@@ -4,6 +4,7 @@ import type {
   ExchangeRate,
   Batch,
   FundingSource,
+  TickerTag,
 } from '@/api/types';
 import { investmentCostTWD, investmentMarketValueTWD } from './currency';
 import { findPrice, findExchangeRate, parseTags } from './dateUtils';
@@ -77,6 +78,72 @@ export function calculateCategorySummary(
       const totalProfit = totalValue - totalCost;
       const profitPercent = totalCost !== 0 ? totalProfit / totalCost : 0;
       return { tag, investments, totalCost, totalValue, totalProfit, profitPercent };
+    })
+    .sort((a, b) => b.totalValue - a.totalValue);
+}
+
+/** A single group within a dimension analysis */
+export interface DimensionGroup {
+  tag: string;
+  tickers: string[];
+  totalValue: number;
+  totalCost: number;
+  totalProfit: number;
+  profitPercent: number;
+}
+
+/** Calculate dimension-based summary by grouping investments via ticker_tags */
+export function calculateDimensionSummary(
+  investmentsWithValue: InvestmentWithValue[],
+  tickerTags: TickerTag[],
+  dimension: string,
+): DimensionGroup[] {
+  // Build ticker → tag lookup for the specified dimension
+  const tickerToTag = new Map<string, string>();
+  for (const tt of tickerTags) {
+    if (tt.dimension === dimension) {
+      tickerToTag.set(tt.ticker, tt.tag);
+    }
+  }
+
+  // First aggregate investments by ticker
+  const tickerAgg = new Map<string, { cost: number; value: number; ticker: string }>();
+  for (const inv of investmentsWithValue) {
+    const existing = tickerAgg.get(inv.ticker);
+    if (existing) {
+      existing.cost += inv.costTWD;
+      existing.value += inv.marketValueTWD;
+    } else {
+      tickerAgg.set(inv.ticker, {
+        ticker: inv.ticker,
+        cost: inv.costTWD,
+        value: inv.marketValueTWD,
+      });
+    }
+  }
+
+  // Group by tag
+  const tagMap = new Map<string, { tickers: Set<string>; cost: number; value: number }>();
+  for (const [ticker, agg] of tickerAgg) {
+    const tag = tickerToTag.get(ticker) ?? '未分類';
+    const group = tagMap.get(tag) ?? { tickers: new Set(), cost: 0, value: 0 };
+    group.tickers.add(ticker);
+    group.cost += agg.cost;
+    group.value += agg.value;
+    tagMap.set(tag, group);
+  }
+
+  return Array.from(tagMap.entries())
+    .map(([tag, group]) => {
+      const totalProfit = group.value - group.cost;
+      return {
+        tag,
+        tickers: Array.from(group.tickers),
+        totalValue: group.value,
+        totalCost: group.cost,
+        totalProfit,
+        profitPercent: group.cost !== 0 ? totalProfit / group.cost : 0,
+      };
     })
     .sort((a, b) => b.totalValue - a.totalValue);
 }

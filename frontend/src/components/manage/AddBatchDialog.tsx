@@ -22,9 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { Badge } from '@/components/ui/badge'
 import { formatTWD } from '@/utils/currency'
-import { findExchangeRate, parseTags } from '@/utils/dateUtils'
+import { findExchangeRate } from '@/utils/dateUtils'
 import { TickerSearch } from './TickerSearch'
 
 interface FundingSourceEntry {
@@ -40,7 +39,6 @@ interface InvestmentEntry {
   price_per_unit: string
   exchange_rate: string
   fees: string
-  tags: string
 }
 
 function emptyFundingSource(): FundingSourceEntry {
@@ -56,7 +54,6 @@ function emptyInvestment(): InvestmentEntry {
     price_per_unit: '',
     exchange_rate: '1',
     fees: '0',
-    tags: '',
   }
 }
 
@@ -93,24 +90,13 @@ export function AddBatchDialog() {
 
   const existingStocks = useMemo(() => {
     if (!portfolio) return []
-    const map = new Map<string, { name: string; market: 'TW' | 'US'; tags: string }>()
+    const map = new Map<string, { name: string; market: 'TW' | 'US' }>()
     for (const inv of portfolio.investments) {
       if (!map.has(inv.ticker)) {
-        map.set(inv.ticker, { name: inv.name, market: inv.market, tags: inv.tags })
+        map.set(inv.ticker, { name: inv.name, market: inv.market })
       }
     }
     return Array.from(map.entries()).map(([ticker, info]) => ({ ticker, ...info }))
-  }, [portfolio])
-
-  const existingTags = useMemo(() => {
-    if (!portfolio) return []
-    const tagSet = new Set<string>()
-    for (const inv of portfolio.investments) {
-      for (const tag of parseTags(inv.tags)) {
-        tagSet.add(tag)
-      }
-    }
-    return Array.from(tagSet).sort()
   }, [portfolio])
 
   const totalFunded = sources.reduce((s, src) => s + (Number(src.amount_twd) || 0), 0)
@@ -141,7 +127,7 @@ export function AddBatchDialog() {
           price_per_unit: Number(inv.price_per_unit),
           exchange_rate: Number(inv.exchange_rate),
           fees: Number(inv.fees),
-          tags: inv.tags,
+          tags: '',
         })),
     }
     await createBatch.mutateAsync(request)
@@ -170,13 +156,12 @@ export function AddBatchDialog() {
           updated.exchange_rate = resolveExchangeRate(value, date)
         }
 
-        // Auto-fill name, market, tags when selecting a known ticker
+        // Auto-fill name, market when selecting a known ticker
         if (field === 'ticker') {
           const known = existingStocks.find((s) => s.ticker === value)
           if (known) {
             updated.name = known.name
             updated.market = known.market
-            updated.tags = known.tags
             updated.exchange_rate = resolveExchangeRate(known.market, date)
           }
         }
@@ -198,20 +183,6 @@ export function AddBatchDialog() {
           market: result.market,
           exchange_rate: resolveExchangeRate(result.market, date),
         }
-      })
-    )
-  }
-
-  /** Toggle a tag in a comma-separated tags string */
-  const toggleTag = (index: number, tag: string) => {
-    setInvestments((prev) =>
-      prev.map((inv, i) => {
-        if (i !== index) return inv
-        const current = parseTags(inv.tags)
-        const next = current.includes(tag)
-          ? current.filter((t) => t !== tag)
-          : [...current, tag]
-        return { ...inv, tags: next.join(',') }
       })
     )
   }
@@ -391,33 +362,7 @@ export function AddBatchDialog() {
                       onChange={(e) => updateInvestment(i, 'fees', e.target.value)}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">標籤</Label>
-                    <Input
-                      value={inv.tags}
-                      onChange={(e) => updateInvestment(i, 'tags', e.target.value)}
-                      placeholder="台灣,ETF"
-                    />
-                  </div>
                 </div>
-                {/* Tag quick-select chips */}
-                {existingTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {existingTags.map((tag) => {
-                      const active = parseTags(inv.tags).includes(tag)
-                      return (
-                        <Badge
-                          key={tag}
-                          variant={active ? 'default' : 'outline'}
-                          className="cursor-pointer text-xs"
-                          onClick={() => toggleTag(i, tag)}
-                        >
-                          {tag}
-                        </Badge>
-                      )
-                    })}
-                  </div>
-                )}
                 <div className="text-right text-sm text-muted-foreground">
                   小計：{formatTWD(calcInvestmentCost(inv))}
                 </div>

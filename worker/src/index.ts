@@ -2,12 +2,15 @@
  * Cloudflare Worker entry point for the Asset Management API.
  *
  * Route table:
- *   GET    /api/portfolio          → Full portfolio snapshot
- *   POST   /api/batches            → Create batch + funding sources + investments
- *   PUT    /api/investments/:id    → Update a single investment row
- *   DELETE /api/investments/:id    → Delete a single investment row
- *   PUT    /api/batches/:id        → Update a single batch row
- *   DELETE /api/batches/:id        → Delete batch + all related data
+ *   GET    /api/portfolio               → Full portfolio snapshot
+ *   POST   /api/batches                 → Create batch + funding sources + investments
+ *   PUT    /api/investments/:id         → Update a single investment row
+ *   DELETE /api/investments/:id         → Delete a single investment row
+ *   PUT    /api/batches/:id             → Update a single batch row
+ *   DELETE /api/batches/:id             → Delete batch + all related data
+ *   PUT    /api/ticker-tags             → Batch upsert ticker tag assignments
+ *   DELETE /api/dimensions/:name        → Delete all tags in a dimension
+ *   PUT    /api/dimensions/:name/rename → Rename a dimension
  */
 
 import {
@@ -27,8 +30,11 @@ import type {
   Investment,
   Metadata,
   PortfolioData,
+  RenameDimensionRequest,
+  TickerTag,
   UpdateBatchRequest,
   UpdateInvestmentRequest,
+  UpsertTickerTagsRequest,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -174,6 +180,7 @@ async function handleGetPortfolio(env: Env): Promise<Response> {
     priceRows,
     exchangeRateRows,
     metadataRows,
+    tickerTagRows,
   ] = await Promise.all([
     readSheet('batches', env),
     readSheet('funding_sources', env),
@@ -181,6 +188,7 @@ async function handleGetPortfolio(env: Env): Promise<Response> {
     readSheet('prices', env),
     readSheet('exchange_rates', env),
     readSheet('metadata', env),
+    readSheet('ticker_tags', env),
   ]);
 
   const portfolio: PortfolioData = {
@@ -219,6 +227,11 @@ async function handleGetPortfolio(env: Env): Promise<Response> {
     metadata: metadataRows.map((r): Metadata => ({
       key: field(r, 'key'),
       value: field(r, 'value'),
+    })),
+    ticker_tags: tickerTagRows.map((r): TickerTag => ({
+      ticker: field(r, 'ticker'),
+      dimension: field(r, 'dimension'),
+      tag: field(r, 'tag'),
     })),
   };
 
@@ -529,6 +542,140 @@ async function handleSearchTicker(query: string): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// Ticker tag handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Serialises a TickerTag to a flat string array:
+ * ticker | dimension | tag
+ */
+function tickerTagToRow(tt: TickerTag): string[] {
+  return [tt.ticker, tt.dimension, tt.tag];
+}
+
+/**
+ * PUT /api/ticker-tags
+ *
+ * Batch upsert ticker tag assignments.  For each (ticker, dimension) pair,
+ * updates the existing row or appends a new one.
+ */
+async function handleUpsertTickerTags(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const body: UpsertTickerTagsRequest = await request.json();
+
+  if (!body.assignments || !Array.isArray(body.assignments)) {
+    return errorResponse('Request body must include assignments array.', 400);
+  }
+
+  const rawRows = await readRawRows('ticker_tags', env);
+  const headers = rawRows[0];
+
+  // Build a map of existing rows: "ticker|dimension" → 1-based row index
+  const existingMap = new Map<string, number>();
+  if (headers) {
+    const tickerCol = headers.indexOf('ticker');
+    const dimCol = headers.indexOf('dimension');
+    for (let i = 1; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      if (row) {
+        const key = `${row[tickerCol] ?? ''}|${row[dimCol] ?? ''}`;
+        existingMap.set(key, i + 1); // 1-based (header = row 1)
+      }
+    }
+  }
+
+  const toAppend: string[][] = [];
+  const toDelete: number[] = [];
+
+  for (const assignment of body.assignments) {
+    const key = `${assignment.ticker}|${assignment.dimension}`;
+    const rowIndex = existingMap.get(key);
+
+    if (!assignment.tag) {
+      // Empty tag means deletion
+      if (rowIndex !== undefined) {
+        toDelete.push(rowIndex);
+      }
+    } else if (rowIndex !== undefined) {
+      await updateRow('ticker_tags', rowIndex, tickerTagToRow(assignment), env);
+    } else {
+      toAppend.push(tickerTagToRow(assignment));
+    }
+  }
+
+  // Delete rows from highest index to lowest to avoid row-shift issues
+  for (const rowIdx of toDelete.sort((a, b) => b - a)) {
+    await deleteRow('ticker_tags', rowIdx, env);
+  }
+
+  if (toAppend.length > 0) {
+    await appendRows('ticker_tags', toAppend, env);
+  }
+
+  return jsonResponse({ updated: body.assignments.length });
+}
+
+/**
+ * DELETE /api/dimensions/:name
+ *
+ * Deletes all ticker_tags rows belonging to the specified dimension.
+ */
+async function handleDeleteDimension(
+  name: string,
+  env: Env,
+): Promise<Response> {
+  // dimension is column index 1 in ticker_tags sheet
+  const indices = await findAllRowIndices('ticker_tags', 1, name, env);
+
+  // Delete from highest index to lowest to avoid row-shift issues.
+  for (const rowIdx of indices.sort((a, b) => b - a)) {
+    await deleteRow('ticker_tags', rowIdx, env);
+  }
+
+  return jsonResponse({ deleted_dimension: name, rows_deleted: indices.length });
+}
+
+/**
+ * PUT /api/dimensions/:name/rename
+ *
+ * Renames a dimension by updating the dimension column of all matching rows.
+ */
+async function handleRenameDimension(
+  name: string,
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const body: RenameDimensionRequest = await request.json();
+
+  if (!body.new_name) {
+    return errorResponse('Request body must include new_name.', 400);
+  }
+
+  const rawRows = await readRawRows('ticker_tags', env);
+  const headers = rawRows[0];
+  if (!headers) {
+    return jsonResponse({ renamed: 0 });
+  }
+
+  const dimCol = headers.indexOf('dimension');
+  let renamed = 0;
+
+  for (let i = 1; i < rawRows.length; i++) {
+    const row = rawRows[i];
+    if (row && row[dimCol] === name) {
+      const updatedRow = [...row];
+      updatedRow[dimCol] = body.new_name;
+      await updateRow('ticker_tags', i + 1, updatedRow, env); // 1-based
+      renamed++;
+    }
+  }
+
+  return jsonResponse({ renamed });
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -548,6 +695,9 @@ function matchRoute(
   | { route: 'delete_investment'; id: string }
   | { route: 'update_batch'; id: string }
   | { route: 'delete_batch'; id: string }
+  | { route: 'upsert_ticker_tags' }
+  | { route: 'delete_dimension'; name: string }
+  | { route: 'rename_dimension'; name: string }
   | null {
   if (method === 'GET' && pathname === '/api/portfolio') {
     return { route: 'get_portfolio' };
@@ -557,6 +707,9 @@ function matchRoute(
   }
   if (method === 'POST' && pathname === '/api/batches') {
     return { route: 'create_batch' };
+  }
+  if (method === 'PUT' && pathname === '/api/ticker-tags') {
+    return { route: 'upsert_ticker_tags' };
   }
 
   const investmentMatch = pathname.match(/^\/api\/investments\/([^/]+)$/);
@@ -576,6 +729,18 @@ function matchRoute(
       if (method === 'PUT') return { route: 'update_batch', id };
       if (method === 'DELETE') return { route: 'delete_batch', id };
     }
+  }
+
+  const dimRenameMatch = pathname.match(/^\/api\/dimensions\/([^/]+)\/rename$/);
+  if (dimRenameMatch) {
+    const name = decodeURIComponent(dimRenameMatch[1] ?? '');
+    if (name && method === 'PUT') return { route: 'rename_dimension', name };
+  }
+
+  const dimMatch = pathname.match(/^\/api\/dimensions\/([^/]+)$/);
+  if (dimMatch) {
+    const name = decodeURIComponent(dimMatch[1] ?? '');
+    if (name && method === 'DELETE') return { route: 'delete_dimension', name };
   }
 
   return null;
@@ -642,6 +807,15 @@ export default {
 
         case 'delete_batch':
           return await handleDeleteBatch(matched.id, env);
+
+        case 'upsert_ticker_tags':
+          return await handleUpsertTickerTags(request, env);
+
+        case 'delete_dimension':
+          return await handleDeleteDimension(matched.name, env);
+
+        case 'rename_dimension':
+          return await handleRenameDimension(matched.name, request, env);
 
         default: {
           // TypeScript exhaustiveness check.

@@ -66,6 +66,16 @@ export interface Metadata {
 }
 
 /**
+ * Represents a per-ticker dimensional tag assignment.
+ * Each row maps a ticker to a single tag within a named dimension.
+ */
+export interface TickerTag {
+  ticker: string;
+  dimension: string;
+  tag: string;
+}
+
+/**
  * Aggregated snapshot of all portfolio data read from every sheet.
  */
 export interface PortfolioData {
@@ -75,6 +85,7 @@ export interface PortfolioData {
   prices: PriceRecord[];
   exchange_rates: ExchangeRate[];
   metadata: Metadata[];
+  ticker_tags: TickerTag[];
 }
 
 /**
@@ -119,6 +130,22 @@ export type UpdateInvestmentRequest = Partial<Omit<Investment, 'id'>>;
  * Request body for PUT /api/batches/:id.
  */
 export type UpdateBatchRequest = Partial<Omit<Batch, 'batch_id'>>;
+
+/**
+ * Request body for PUT /api/ticker-tags.
+ * Batch upsert: for each assignment, find the row with the same ticker+dimension
+ * and update its tag, or append a new row if not found.
+ */
+export interface UpsertTickerTagsRequest {
+  assignments: TickerTag[];
+}
+
+/**
+ * Request body for PUT /api/dimensions/:name/rename.
+ */
+export interface RenameDimensionRequest {
+  new_name: string;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helper types

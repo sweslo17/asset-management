@@ -5,6 +5,8 @@ import type {
   Investment,
   Batch,
   TickerSearchResult,
+  UpsertTickerTagsRequest,
+  RenameDimensionRequest,
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -82,4 +84,22 @@ export const api = {
 
   searchTicker: (query: string) =>
     request<TickerSearchResult[]>(`/api/search-ticker?q=${encodeURIComponent(query)}`),
+
+  upsertTickerTags: (data: UpsertTickerTagsRequest) =>
+    request<{ updated: number }>('/api/ticker-tags', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteDimension: (name: string) =>
+    request<{ deleted_dimension: string; rows_deleted: number }>(
+      `/api/dimensions/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ),
+
+  renameDimension: (name: string, newName: string) =>
+    request<{ renamed: number }>(
+      `/api/dimensions/${encodeURIComponent(name)}/rename`,
+      { method: 'PUT', body: JSON.stringify({ new_name: newName } satisfies RenameDimensionRequest) },
+    ),
 };
