@@ -393,6 +393,11 @@ export function AddBatchDialog() {
             <div className="text-sm font-medium">
               剩餘未投入：{formatTWD(totalFunded - totalInvested)}
             </div>
+            {totalInvested > totalFunded && (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                投資總金額超過資金來源，無法送出
+              </div>
+            )}
           </div>
         )}
 
@@ -441,12 +446,12 @@ export function AddBatchDialog() {
           {step < 4 ? (
             <Button
               onClick={() => setStep((s) => s + 1)}
-              disabled={step === 1 && !date}
+              disabled={(step === 1 && !date) || (step === 3 && totalInvested > totalFunded)}
             >
               下一步
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={createBatch.isPending}>
+            <Button onClick={handleSubmit} disabled={createBatch.isPending || totalInvested > totalFunded}>
               {createBatch.isPending ? '送出中...' : '確認送出'}
             </Button>
           )}
