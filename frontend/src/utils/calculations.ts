@@ -316,15 +316,18 @@ export function generateDimensionTimeSeries(
 
   if (dates.length === 0) return [];
 
-  // Collect all tags that appear (including 未分類)
+  // Collect all tags that appear (skip untagged tickers)
   const allTags = new Set<string>();
   for (const inv of investments) {
-    allTags.add(tickerToTag.get(inv.ticker) ?? '未分類');
+    const tag = tickerToTag.get(inv.ticker);
+    if (tag) allTags.add(tag);
   }
 
-  // Compute sparse data points
+  // Compute sparse data points (only tagged tickers)
   const sparse = dates.map((date) => {
-    const activeInvestments = investments.filter((inv) => inv.date <= date);
+    const activeInvestments = investments.filter(
+      (inv) => inv.date <= date && tickerToTag.has(inv.ticker),
+    );
     const valued = calculateInvestmentValues(activeInvestments, prices, exchangeRates, date);
 
     // Aggregate by tag
@@ -332,8 +335,8 @@ export function generateDimensionTimeSeries(
     for (const tag of allTags) tagValues.set(tag, 0);
 
     for (const inv of valued) {
-      const tag = tickerToTag.get(inv.ticker) ?? '未分類';
-      tagValues.set(tag, (tagValues.get(tag) ?? 0) + inv.marketValueTWD);
+      const tag = tickerToTag.get(inv.ticker);
+      if (tag) tagValues.set(tag, (tagValues.get(tag) ?? 0) + inv.marketValueTWD);
     }
 
     const point: DimensionTimeSeriesPoint = { date };

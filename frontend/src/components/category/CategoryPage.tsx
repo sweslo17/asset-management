@@ -122,16 +122,17 @@ export function CategoryPage() {
     data.investments, data.prices, data.exchange_rates, targetDate,
   )
 
-  const totalValue = investmentsWithValue.reduce((s, i) => s + i.marketValueTWD, 0)
-
-  const groups: DimensionGroup[] = effectiveDimension
+  const allGroups: DimensionGroup[] = effectiveDimension
     ? calculateDimensionSummary(investmentsWithValue, tickerTags, effectiveDimension)
     : []
 
-  const tagNames = groups.map((g) => g.tag)
-
-  const untaggedGroup = groups.find((g) => g.tag === '未分類')
+  const untaggedGroup = allGroups.find((g) => g.tag === '未分類')
   const untaggedCount = untaggedGroup?.tickers.length ?? 0
+
+  // Exclude uncategorized from charts and cards — only show tagged groups
+  const groups = allGroups.filter((g) => g.tag !== '未分類')
+  const taggedTotalValue = groups.reduce((s, g) => s + g.totalValue, 0)
+  const tagNames = groups.map((g) => g.tag)
 
   const toggleExpand = (tag: string) => {
     setExpandedTags((prev) => {
@@ -227,8 +228,8 @@ export function CategoryPage() {
                     <Legend
                       formatter={(value) => {
                         const item = groups.find((g) => g.tag === value)
-                        const pct = item && totalValue
-                          ? ((item.totalValue / totalValue) * 100).toFixed(1)
+                        const pct = item && taggedTotalValue
+                          ? ((item.totalValue / taggedTotalValue) * 100).toFixed(1)
                           : '0'
                         return `${value} (${pct}%)`
                       }}
@@ -320,8 +321,8 @@ export function CategoryPage() {
                       </Badge>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {totalValue > 0
-                        ? formatPercent(group.totalValue / totalValue)
+                      {taggedTotalValue > 0
+                        ? formatPercent(group.totalValue / taggedTotalValue)
                         : '0%'}{' '}
                       佔比
                     </span>
