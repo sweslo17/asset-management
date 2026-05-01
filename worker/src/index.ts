@@ -12,6 +12,7 @@
  *   DELETE /api/dimensions/:name        → Delete all tags in a dimension
  *   PUT    /api/dimensions/:name/rename → Rename a dimension
  *   POST   /api/backfill               → Backfill historical prices & rates
+ *   GET    /api/quote                  → Closing price (and USD/TWD for US) on a given date
  */
 
 import {
@@ -32,6 +33,7 @@ import type {
   Investment,
   Metadata,
   PortfolioData,
+  QuoteResponse,
   RenameDimensionRequest,
   TickerTag,
   UpdateBatchRequest,
@@ -788,6 +790,90 @@ async function handleBackfill(env: Env): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// Quote handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Subtracts a number of days from a YYYY-MM-DD date string and returns the
+ * resulting YYYY-MM-DD date string.
+ */
+function subtractDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * GET /api/quote?ticker=X&date=Y[&market=TW|US]
+ *
+ * Returns the closing price for `ticker` on `date` (or the closest preceding
+ * trading day). For US tickers, also returns the USD/TWD rate on that date.
+ *
+ * Used by the "建立初始持倉" flow to auto-fill cost basis from market price.
+ */
+async function handleQuote(
+  ticker: string,
+  date: string,
+  market: string,
+): Promise<Response> {
+  if (!ticker) return errorResponse('Missing required query parameter: ticker', 400);
+  if (!date) return errorResponse('Missing required query parameter: date', 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return errorResponse('Invalid date format; expected YYYY-MM-DD', 400);
+  }
+
+  // Fetch a 7-day window ending on the requested date so we can fall back to
+  // the nearest preceding trading day if the requested date is a weekend or
+  // holiday.
+  const startDate = subtractDays(date, 7);
+
+  const priceRecords = await fetchYahooPrices(ticker, startDate).catch((err) => {
+    console.error(`[Quote] Failed to fetch prices for ${ticker}: ${err}`);
+    return [];
+  });
+
+  // Pick the latest record on or before the requested date.
+  const matchingPrice = priceRecords
+    .filter((r) => r.date <= date)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+  if (!matchingPrice) {
+    return errorResponse(
+      `No price data available for ${ticker} on or before ${date}`,
+      404,
+    );
+  }
+
+  // Auto-detect market from ticker suffix when not explicitly provided.
+  const isUS =
+    market === 'US' || (!market && !/\.TW[O]?$/.test(ticker));
+
+  let usdTwd: number | null = null;
+  if (isUS) {
+    const rateRecords = await fetchYahooRates(startDate).catch((err) => {
+      console.error(`[Quote] Failed to fetch USD/TWD rates: ${err}`);
+      return [];
+    });
+    const matchingRate = rateRecords
+      .filter((r) => r.date <= date)
+      .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    usdTwd = matchingRate ? matchingRate.usd_twd : null;
+  }
+
+  const result: QuoteResponse = {
+    ticker,
+    date: matchingPrice.date,
+    close: matchingPrice.close,
+    usd_twd: usdTwd,
+  };
+
+  return jsonResponse(result);
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -811,12 +897,16 @@ function matchRoute(
   | { route: 'delete_dimension'; name: string }
   | { route: 'rename_dimension'; name: string }
   | { route: 'backfill' }
+  | { route: 'quote'; ticker: string; date: string; market: string }
   | null {
   if (method === 'GET' && pathname === '/api/portfolio') {
     return { route: 'get_portfolio' };
   }
   if (method === 'GET' && pathname === '/api/search-ticker') {
     return { route: 'search_ticker', query: '' };
+  }
+  if (method === 'GET' && pathname === '/api/quote') {
+    return { route: 'quote', ticker: '', date: '', market: '' };
   }
   if (method === 'POST' && pathname === '/api/batches') {
     return { route: 'create_batch' };
@@ -901,6 +991,13 @@ export default {
       matched.query = url.searchParams.get('q') ?? '';
     }
 
+    // Inject query string for quote route.
+    if (matched.route === 'quote') {
+      matched.ticker = url.searchParams.get('ticker') ?? '';
+      matched.date = url.searchParams.get('date') ?? '';
+      matched.market = url.searchParams.get('market') ?? '';
+    }
+
     try {
       switch (matched.route) {
         case 'get_portfolio':
@@ -935,6 +1032,9 @@ export default {
 
         case 'backfill':
           return await handleBackfill(env);
+
+        case 'quote':
+          return await handleQuote(matched.ticker, matched.date, matched.market);
 
         default: {
           // TypeScript exhaustiveness check.

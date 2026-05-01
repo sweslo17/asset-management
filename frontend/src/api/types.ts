@@ -87,3 +87,10 @@ export interface BackfillResponse {
   prices_added: number;
   rates_added: number;
 }
+
+export interface QuoteResponse {
+  ticker: string;
+  date: string;
+  close: number;
+  usd_twd: number | null;
+}

@@ -5,6 +5,7 @@ import type {
   CreateBatchResponse,
   Investment,
   Batch,
+  QuoteResponse,
   TickerSearchResult,
   UpsertTickerTagsRequest,
   RenameDimensionRequest,
@@ -106,4 +107,10 @@ export const api = {
 
   backfill: () =>
     request<BackfillResponse>('/api/backfill', { method: 'POST' }),
+
+  fetchQuote: (ticker: string, date: string, market?: 'TW' | 'US') => {
+    const params = new URLSearchParams({ ticker, date });
+    if (market) params.set('market', market);
+    return request<QuoteResponse>(`/api/quote?${params.toString()}`);
+  },
 };

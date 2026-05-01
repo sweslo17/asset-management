@@ -155,6 +155,20 @@ export interface BackfillResponse {
   rates_added: number;
 }
 
+/**
+ * Response body for GET /api/quote.
+ *
+ * Returns the closing price (and USD/TWD rate, for US tickers) on or before
+ * the requested date. The `date` field reflects the actual trading day used,
+ * which may differ from the request date if it falls on a weekend or holiday.
+ */
+export interface QuoteResponse {
+  ticker: string;
+  date: string;
+  close: number;
+  usd_twd: number | null;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helper types
 // ---------------------------------------------------------------------------

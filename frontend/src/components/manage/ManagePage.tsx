@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AddBatchDialog } from './AddBatchDialog'
+import { AddBaselineDialog } from './AddBaselineDialog'
 import { BatchListView } from './BatchListView'
 
 export function ManagePage() {
@@ -35,7 +36,10 @@ export function ManagePage() {
           <h1 className="text-2xl font-semibold tracking-tight">管理</h1>
           <p className="text-sm text-muted-foreground">新增、編輯和刪除投入記錄</p>
         </div>
-        <AddBatchDialog />
+        <div className="flex gap-2">
+          <AddBaselineDialog />
+          <AddBatchDialog />
+        </div>
       </div>
 
       <Card>
