@@ -1,9 +1,13 @@
-name: Update Prices & Exchange Rates
+# =============================================================================
+# DEPRECATED（Sheets→D1 遷移後停用）
+# 價格/匯率更新已改由 Cloudflare Worker Cron Trigger 處理（見 worker/wrangler.toml
+# [triggers] 與 worker/src/index.ts 的 scheduled()）。
+# 此 workflow 已移除排程，僅保留手動觸發以備不時之需；確認新流程運作後可整檔刪除，
+# 並刪掉 repo 的 GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_SHEETS_ID secrets。
+# =============================================================================
+name: Update Prices & Exchange Rates (DEPRECATED)
 
 on:
-  schedule:
-    - cron: '0 6 * * 1-5'    # Mon-Fri 14:00 Taiwan time (after TW market close)
-    - cron: '0 22 * * 1-5'   # Mon-Fri 06:00 Taiwan time (after US market close)
   workflow_dispatch: {}
 
 jobs:

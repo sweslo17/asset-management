@@ -3,6 +3,26 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 # ---------------------------------------------------------------------------
+# D1 資料庫綁定
+# 階段1建立後，把 `wrangler d1 create asset-management-db` 印出的 database_id 貼進來。
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "asset-management-db"
+database_id = "63417f5f-0d7c-4fae-9ac7-11ee25d59cf1"
+
+# 認證 secrets（用 wrangler secret put 設定，勿寫死）：
+#   wrangler secret put API_KEY        # 前端/人用
+#   wrangler secret put READ_TOKEN     # investment-judgement 唯讀用
+
+# ---------------------------------------------------------------------------
+# Cron 排程：每日更新價格/匯率（取代原 GitHub Actions + Python 腳本）
+# 台灣時間 = UTC+8。原排程：14:00 台（TW 收盤後）、06:00 台（US 收盤後）。
+# ---------------------------------------------------------------------------
+[triggers]
+crons = ["0 6 * * 1-5", "0 22 * * 1-5"]
+
+# ---------------------------------------------------------------------------
 # Routes
 # Uncomment and replace with your actual domain after deploying.
 # ---------------------------------------------------------------------------
@@ -36,3 +56,4 @@ compatibility_date = "2024-12-01"
 [dev]
 port = 8787
 local_protocol = "http"
+

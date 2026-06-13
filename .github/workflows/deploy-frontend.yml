@@ -1,9 +1,12 @@
-name: Deploy Frontend to GitHub Pages
+# =============================================================================
+# DEPRECATED（前端已遷移至 Cloudflare Pages）
+# 前端改由 Cloudflare Pages 的 Git 整合自動建置部署（CF 後台連接此 repo，
+# build command: `npm run build`、output: `dist`、root: `frontend`）。
+# 確認新部署運作後可整檔刪除，並到 repo Settings → Pages 把 Source 設為 None。
+# =============================================================================
+name: Deploy Frontend to GitHub Pages (DEPRECATED)
 
 on:
-  push:
-    branches: [main]
-    paths: ['frontend/**']
   workflow_dispatch: {}
 
 permissions:

@@ -38,6 +38,8 @@ export interface Investment {
   exchange_rate: number;
   fees: number;
   tags: string;
+  /** 'buy' | 'sell' | 'rebalance'. 預設 buy；負 units 表示賣出。 */
+  txn_type?: 'buy' | 'sell' | 'rebalance';
 }
 
 /**
@@ -93,12 +95,12 @@ export interface PortfolioData {
  * Secrets are injected at runtime via `wrangler secret put`.
  */
 export interface Env {
-  /** Full JSON string of a Google Service Account credentials file. */
-  GOOGLE_SERVICE_ACCOUNT_JSON: string;
-  /** The ID of the target Google Spreadsheet. */
-  GOOGLE_SHEETS_ID: string;
-  /** API key required in the X-API-Key header for all requests. */
+  /** Cloudflare D1 database binding (see wrangler.toml [[d1_databases]]). */
+  DB: D1Database;
+  /** API key required in the X-API-Key header for app routes. */
   API_KEY: string;
+  /** Read-only token for GET /api/sleeve-summary?token= (used by investment-judgement). */
+  READ_TOKEN: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,10 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig(({ command }) => ({
-  base: command === 'serve' ? '/' : '/asset-management/',
+export default defineConfig(() => ({
+  // Cloudflare Pages 服務於子網域根目錄，base 一律 '/'。
+  // （原 GitHub Pages 用 '/asset-management/' 子路徑，遷移後不再需要。）
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),
