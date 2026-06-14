@@ -20,7 +20,8 @@ INSERT INTO investments (id, batch_id, ticker, name, market, date, units, price_
   ('INV-002', 'BATCH-001', 'UPRO',    'ProShares UltraPro S&P 500',    'US', '2026-06-12', 185.22054, 137.72,  31.615, 0, '', 'buy'),
   ('INV-003', 'BATCH-001', 'TQQQ',    'ProShares UltraPro QQQ',        'US', '2026-06-12', 340.13867, 76.115,  31.615, 0, '', 'buy'),
   ('INV-004', 'BATCH-001', 'BOXX',    'Alpha Architect 1-3M Box ETF',  'US', '2026-06-12', 270.0224,  116.995, 31.615, 0, '', 'buy'),
-  ('INV-005', 'BATCH-001', '0050.TW', '元大台灣50',                     'TW', '2026-06-12', 28000,     101.95,  1,      0, '', 'buy');
+  -- 台股 units 以「張」計（1 張=1000 股）；持有 28000 股 = 28 張
+  ('INV-005', 'BATCH-001', '0050.TW', '元大台灣50',                     'TW', '2026-06-12', 28,        101.95,  1,      0, '', 'buy');
 
 -- 最新價格（讓 sleeve-summary 立即可估值；之後 cron 自動更新）
 INSERT INTO prices (ticker, date, close) VALUES

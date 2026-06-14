@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { usePortfolioData } from '@/hooks/usePortfolioData'
-import { calculateInvestmentValues, generatePortfolioTimeSeries, type InvestmentWithValue } from '@/utils/calculations'
+import { calculateInvestmentValues, generatePortfolioTimeSeries, generateCounterfactualSeries, generateExpectedGrowth, type InvestmentWithValue } from '@/utils/calculations'
 import { formatTWD, formatPercent } from '@/utils/currency'
 import { getLatestDate } from '@/utils/dateUtils'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -86,10 +86,54 @@ export function DashboardPage() {
   const totalProfitPct = totalCost !== 0 ? totalProfit / totalCost : 0
 
   const timeSeries = generatePortfolioTimeSeries(data.investments, data.prices, data.exchange_rates)
+
+  // 反事實：排除轉換批次 → 「若未轉換」淨值線
+  const rebalanceBatchIds = new Set(
+    data.batches.filter((b) => b.type === 'rebalance').map((b) => b.batch_id),
+  )
+  const hasRebalance = rebalanceBatchIds.size > 0
+  if (hasRebalance) {
+    const cf = generateCounterfactualSeries(
+      data.investments, data.prices, data.exchange_rates, rebalanceBatchIds,
+    )
+    // 只在第一次轉換之後才畫對照線（之前兩條相同）
+    const firstRebalDate = data.batches
+      .filter((b) => b.type === 'rebalance')
+      .map((b) => b.date)
+      .sort()[0]
+    for (const p of timeSeries) {
+      if (firstRebalDate && p.date >= firstRebalDate) {
+        const v = cf.get(p.date)
+        if (v !== undefined) p.counterfactualValue = v
+      }
+    }
+  }
+
+  // 轉換成效：實際 vs 若未轉換（用最新有對照值的點）
+  const lastWithCf = [...timeSeries].reverse().find((p) => p.counterfactualValue !== undefined)
+  const rebalanceEffect = lastWithCf
+    ? lastWithCf.totalValue - (lastWithCf.counterfactualValue as number)
+    : null
+
+  // 預期資產增長線：從今日淨值，按混合預期年化報酬，畫到 50 歲（2038）
+  const EXPECTED_ANNUAL_RETURN = 0.077  // 與 investment-judgement 總淨值推估的混合 g 一致（regime 變動會浮動）
+  const TARGET_DATE = '2038-12-31'      // 1988 + 50 歲
+  const chartSeries: typeof timeSeries = [...timeSeries]
+  if (chartSeries.length > 0) {
+    const last = chartSeries[chartSeries.length - 1]
+    last.expectedValue = last.totalValue
+    const future = generateExpectedGrowth(last.date, last.totalValue, EXPECTED_ANNUAL_RETURN, TARGET_DATE)
+    for (const f of future.slice(1)) {
+      chartSeries.push({ date: f.date, expectedValue: f.expectedValue } as (typeof timeSeries)[number])
+    }
+  }
+  const expectedAt50 = chartSeries[chartSeries.length - 1]?.expectedValue ?? null
+
   const batchMarkers: BatchMarker[] = data.batches.map((b) => ({
     date: b.date,
     label: b.description,
-    amount: data.funding_sources
+    kind: b.type === 'rebalance' ? 'rebalance' : 'contribution',
+    amount: b.type === 'rebalance' ? undefined : data.funding_sources
       .filter((fs) => fs.batch_id === b.batch_id)
       .reduce((sum, fs) => sum + fs.amount_twd, 0),
   }))
@@ -137,13 +181,41 @@ export function DashboardPage() {
         </Card>
       </div>
 
+      {/* 轉換成效卡 */}
+      {rebalanceEffect !== null && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">轉換成效（實際 vs 若未轉換）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <CurrencyDisplay value={rebalanceEffect} showSign className="text-2xl font-bold" />
+              <span className="text-sm text-muted-foreground">
+                {rebalanceEffect >= 0 ? '轉換至今多賺' : '轉換至今少賺'}（vs 維持原配置）
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Trend chart */}
       <Card>
         <CardHeader>
-          <CardTitle>資產趨勢</CardTitle>
+          <CardTitle>資產趨勢{hasRebalance ? '（含「若未轉換」對照）' : ''}</CardTitle>
+          {expectedAt50 !== null && (
+            <p className="text-sm text-muted-foreground">
+              預期增長 @ {(EXPECTED_ANNUAL_RETURN * 100).toFixed(1)}%/年 → 50 歲約 {formatTWD(expectedAt50)}
+            </p>
+          )}
         </CardHeader>
         <CardContent>
-          <TrendChart data={timeSeries} batches={batchMarkers} showCostLine={false} />
+          <TrendChart
+            data={chartSeries}
+            batches={batchMarkers}
+            showCostLine={false}
+            showCounterfactual={hasRebalance}
+            showExpected
+          />
         </CardContent>
       </Card>
 

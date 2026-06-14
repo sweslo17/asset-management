@@ -2,6 +2,28 @@ export interface Batch {
   batch_id: string;
   date: string;
   description: string;
+  /** 'contribution'（投入）| 'rebalance'（轉換）。舊資料預設 contribution。 */
+  type?: 'contribution' | 'rebalance';
+}
+
+export interface RebalanceRequest {
+  date: string;
+  description: string;
+  trades: Array<{
+    ticker: string;
+    name?: string;
+    market: 'TW' | 'US';
+    units_delta: number;
+    price_per_unit: number;
+    exchange_rate?: number;
+    fees?: number;
+  }>;
+}
+
+export interface RebalanceResponse {
+  batch_id: string;
+  realized_pl_twd: number;
+  legs: Array<{ ticker: string; units_delta: number; realized_pl_twd: number | null }>;
 }
 
 export interface FundingSource {

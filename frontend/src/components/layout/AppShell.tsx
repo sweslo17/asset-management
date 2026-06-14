@@ -7,6 +7,7 @@ const navItems = [
   { path: '/category', label: '分類', icon: '🏷️' },
   { path: '/funding', label: '來源', icon: '💰' },
   { path: '/batch', label: '投入', icon: '📦' },
+  { path: '/rebalance', label: '轉換', icon: '🔄' },
   { path: '/manage', label: '管理', icon: '⚙️' },
 ]
 

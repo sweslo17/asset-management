@@ -6,11 +6,13 @@
 
 PRAGMA foreign_keys = ON;
 
--- 投資批次（一次買進的群組）
+-- 投資批次（投入或轉換事件）
 CREATE TABLE IF NOT EXISTS batches (
   batch_id    TEXT PRIMARY KEY,
   date        TEXT NOT NULL,            -- ISO yyyy-mm-dd
-  description TEXT NOT NULL DEFAULT ''
+  description TEXT NOT NULL DEFAULT '',
+  type        TEXT NOT NULL DEFAULT 'contribution'  -- contribution（投入，新資金）| rebalance（轉換，重組持股）
+    CHECK (type IN ('contribution', 'rebalance'))
 );
 
 -- 批次的資金來源

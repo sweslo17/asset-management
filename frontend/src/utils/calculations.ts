@@ -372,6 +372,52 @@ export interface TimeSeriesPoint {
   date: string;
   totalValue: number;  // sum of market values (TWD)
   totalCost: number;   // sum of investment costs (TWD)
+  counterfactualValue?: number;  // 反事實：排除轉換批次後的市值（「若未轉換」）
+  expectedValue?: number;        // 預期資產增長（從今日往未來，按預期年化報酬）
+}
+
+/**
+ * 從最新淨值往未來，依預期年化名目報酬產生「預期資產增長」點（每月一點）。
+ * 回傳的點只含 date 與 expectedValue，供疊加在歷史序列之後。
+ */
+export function generateExpectedGrowth(
+  latestDate: string,
+  latestValue: number,
+  annualReturn: number,
+  targetDate: string,
+): Array<{ date: string; expectedValue: number }> {
+  const out: Array<{ date: string; expectedValue: number }> = [];
+  const start = new Date(`${latestDate}T00:00:00Z`);
+  const end = new Date(`${targetDate}T00:00:00Z`);
+  if (end <= start) return out;
+  const monthly = Math.pow(1 + annualReturn, 1 / 12);
+  let v = latestValue;
+  const d = new Date(start);
+  // 第一點 = 今日（與歷史線接續）
+  out.push({ date: latestDate, expectedValue: Math.round(v) });
+  while (d < end) {
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    v *= monthly;
+    out.push({ date: d.toISOString().slice(0, 10), expectedValue: Math.round(v) });
+  }
+  return out;
+}
+
+/**
+ * 產生「若未轉換」的反事實淨值序列：排除指定（轉換）批次的所有交易後，
+ * 把轉換前的持股以歷史價格 valued forward。回傳 date → value 對照。
+ */
+export function generateCounterfactualSeries(
+  investments: Investment[],
+  prices: PriceRecord[],
+  exchangeRates: ExchangeRate[],
+  excludeBatchIds: Set<string>,
+  startDate?: string,
+  endDate?: string,
+): Map<string, number> {
+  const kept = investments.filter((inv) => !excludeBatchIds.has(inv.batch_id));
+  const series = generatePortfolioTimeSeries(kept, prices, exchangeRates, startDate, endDate);
+  return new Map(series.map((p) => [p.date, p.totalValue]));
 }
 
 /** Generate portfolio value/cost time series from investment and price dates */

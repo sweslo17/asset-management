@@ -9,6 +9,8 @@ import type {
   TickerSearchResult,
   UpsertTickerTagsRequest,
   RenameDimensionRequest,
+  RebalanceRequest,
+  RebalanceResponse,
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -83,6 +85,12 @@ export const api = {
         funding_sources_deleted: number;
       };
     }>(`/api/batches/${id}`, { method: 'DELETE' }),
+
+  rebalance: (data: RebalanceRequest) =>
+    request<RebalanceResponse>('/api/rebalance', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   searchTicker: (query: string) =>
     request<TickerSearchResult[]>(`/api/search-ticker?q=${encodeURIComponent(query)}`),

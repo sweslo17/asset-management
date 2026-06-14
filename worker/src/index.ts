@@ -20,6 +20,7 @@
 import {
   getPortfolio,
   createBatch,
+  createRebalance,
   getInvestment,
   updateInvestment,
   deleteInvestment,
@@ -43,6 +44,7 @@ import type {
   Env,
   Investment,
   QuoteResponse,
+  RebalanceRequest,
   RenameDimensionRequest,
   TickerTag,
   UpdateBatchRequest,
@@ -65,16 +67,30 @@ function corsHeaders(origin = '*'): Record<string, string> {
   };
 }
 
+/** 取得字串的 hostname（容許帶或不帶 scheme），失敗則原樣回傳。 */
+function hostOf(s: string): string {
+  try {
+    return new URL(s.includes('://') ? s : `https://${s}`).host;
+  } catch {
+    return s;
+  }
+}
+
 /**
- * 解析這次請求該回的 Access-Control-Allow-Origin。
- * 未設 ALLOWED_ORIGINS → '*'。設了 → 若請求 Origin 在白名單則回該 Origin，否則回第一個白名單值。
+ * 解析這次請求該回的 Access-Control-Allow-Origin（永遠是合法值）。
+ * - 未設 ALLOWED_ORIGINS，或非瀏覽器請求（無 Origin header，如 curl/web_fetch）→ '*'
+ * - 請求 Origin 的 host 在白名單 → 回請求的完整 Origin（含 scheme，必合法）
+ * - 不在白名單 → 回第一個白名單項正規化成 https://host（合法但不匹配，瀏覽器擋下=預期）
+ * 容錯：白名單項可帶或不帶 https://（用 host 比對）。
  */
 function resolveOrigin(env: Env, request: Request): string {
   const allow = (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (allow.length === 0) return '*';
   const origin = request.headers.get('Origin');
-  if (origin && allow.includes(origin)) return origin;
-  return allow[0] ?? '*';
+  if (!origin) return '*';
+  const allowHosts = allow.map(hostOf);
+  if (allowHosts.includes(hostOf(origin))) return origin;
+  return `https://${allowHosts[0]}`;
 }
 
 /** 在回應上覆寫 Access-Control-Allow-Origin（集中處理 CORS）。 */
@@ -114,6 +130,15 @@ async function handleCreateBatch(request: Request, env: Env): Promise<Response> 
     return errorResponse('Request body must include batch, funding_sources, and investments.', 400);
   }
   const result = await createBatch(env.DB, body.batch, body.funding_sources, body.investments);
+  return jsonResponse(result, 201);
+}
+
+async function handleRebalance(request: Request, env: Env): Promise<Response> {
+  const body: RebalanceRequest = await request.json();
+  if (!body.date || !body.trades || !Array.isArray(body.trades) || body.trades.length === 0) {
+    return errorResponse('Request body must include date and a non-empty trades array.', 400);
+  }
+  const result = await createRebalance(env.DB, body.date, body.description ?? '', body.trades);
   return jsonResponse(result, 201);
 }
 
@@ -324,6 +349,7 @@ type Route =
   | { route: 'sleeve_summary' }
   | { route: 'search_ticker'; query: string }
   | { route: 'create_batch' }
+  | { route: 'rebalance' }
   | { route: 'update_investment'; id: string }
   | { route: 'delete_investment'; id: string }
   | { route: 'update_batch'; id: string }
@@ -341,6 +367,7 @@ function matchRoute(method: string, pathname: string): Route {
   if (method === 'GET' && pathname === '/api/search-ticker') return { route: 'search_ticker', query: '' };
   if (method === 'GET' && pathname === '/api/quote') return { route: 'quote', ticker: '', date: '', market: '' };
   if (method === 'POST' && pathname === '/api/batches') return { route: 'create_batch' };
+  if (method === 'POST' && pathname === '/api/rebalance') return { route: 'rebalance' };
   if (method === 'PUT' && pathname === '/api/ticker-tags') return { route: 'upsert_ticker_tags' };
   if (method === 'POST' && pathname === '/api/backfill') return { route: 'backfill' };
 
@@ -410,6 +437,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       case 'sleeve_summary': return await handleSleeveSummary(env);
       case 'search_ticker': return await handleSearchTicker(matched.query);
       case 'create_batch': return await handleCreateBatch(request, env);
+      case 'rebalance': return await handleRebalance(request, env);
       case 'update_investment': return await handleUpdateInvestment(matched.id, request, env);
       case 'delete_investment': return await handleDeleteInvestment(matched.id, env);
       case 'update_batch': return await handleUpdateBatch(matched.id, request, env);

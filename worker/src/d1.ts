@@ -23,7 +23,7 @@ type DB = D1Database;
 export async function getPortfolio(db: DB): Promise<PortfolioData> {
   const [batches, funding, investments, prices, rates, metadata, tags] =
     await Promise.all([
-      db.prepare('SELECT batch_id, date, description FROM batches ORDER BY date, batch_id').all<Batch>(),
+      db.prepare('SELECT batch_id, date, description, type FROM batches ORDER BY date, batch_id').all<Batch>(),
       db.prepare('SELECT batch_id, source_name, amount_twd FROM funding_sources').all<FundingSource>(),
       db.prepare(
         'SELECT id, batch_id, ticker, name, market, date, units, price_per_unit, exchange_rate, fees, tags FROM investments ORDER BY date, id',
@@ -82,8 +82,8 @@ export async function createBatch(
   }));
 
   const stmts: D1PreparedStatement[] = [
-    db.prepare('INSERT INTO batches (batch_id, date, description) VALUES (?, ?, ?)').bind(
-      batch.batch_id, batch.date, batch.description),
+    db.prepare('INSERT INTO batches (batch_id, date, description, type) VALUES (?, ?, ?, ?)').bind(
+      batch.batch_id, batch.date, batch.description, batch.type ?? 'contribution'),
   ];
   for (const fs of funding_sources) {
     stmts.push(db.prepare('INSERT INTO funding_sources (batch_id, source_name, amount_twd) VALUES (?, ?, ?)')
@@ -99,6 +99,87 @@ export async function createBatch(
   }
   await db.batch(stmts);
   return { batch, funding_sources, investments };
+}
+
+// ---------------------------------------------------------------------------
+// 轉換（rebalance）：賣負買正、計算已實現損益
+// ---------------------------------------------------------------------------
+
+const LOT = (market: string) => (market === 'TW' ? 1000 : 1);
+
+/** 取得某 ticker 目前的加權平均成本（每單位 TWD）與淨持有單位。 */
+async function avgCostTwd(db: DB, ticker: string): Promise<{ units: number; avgCostTwd: number }> {
+  const rows = await db.prepare(
+    'SELECT units, price_per_unit, exchange_rate, fees, market FROM investments WHERE ticker = ?',
+  ).bind(ticker).all<{ units: number; price_per_unit: number; exchange_rate: number; fees: number; market: string }>();
+  let units = 0, cost = 0;
+  for (const r of rows.results ?? []) {
+    const lot = LOT(r.market);
+    units += r.units;
+    cost += r.units * r.price_per_unit * lot * (r.market === 'US' ? r.exchange_rate : 1) + (r.fees || 0);
+  }
+  return { units, avgCostTwd: units !== 0 ? cost / units : 0 };
+}
+
+export interface RebalanceLeg {
+  ticker: string; name?: string; market: 'TW' | 'US';
+  units_delta: number; price_per_unit: number; exchange_rate?: number; fees?: number;
+}
+
+export async function createRebalance(
+  db: DB,
+  date: string,
+  description: string,
+  trades: RebalanceLeg[],
+): Promise<{ batch_id: string; realized_pl_twd: number; legs: Array<{ ticker: string; units_delta: number; realized_pl_twd: number | null }> }> {
+  const batchId = await nextId(db, 'batches', 'batch_id', 'BATCH');
+  const baseInvId = await nextId(db, 'investments', 'id', 'INV');
+  const baseNum = parseInt(baseInvId.split('-')[1] ?? '1', 10);
+
+  const stmts: D1PreparedStatement[] = [
+    db.prepare("INSERT INTO batches (batch_id, date, description, type) VALUES (?, ?, ?, 'rebalance')")
+      .bind(batchId, date, description),
+  ];
+
+  let realizedTotal = 0;
+  const legs: Array<{ ticker: string; units_delta: number; realized_pl_twd: number | null }> = [];
+
+  for (let i = 0; i < trades.length; i++) {
+    const t = trades[i]!;
+    const lot = LOT(t.market);
+    const fx = t.market === 'US' ? (t.exchange_rate ?? 1) : 1;
+    let realized: number | null = null;
+
+    if (t.units_delta < 0) {
+      // 賣出 → 已實現損益 = (賣價 − 平均成本) × 賣出單位
+      const { avgCostTwd: avg } = await avgCostTwd(db, t.ticker);
+      const sellUnits = -t.units_delta;
+      const proceeds = sellUnits * t.price_per_unit * lot * fx - (t.fees || 0);
+      const costOut = sellUnits * avg;
+      realized = proceeds - costOut;
+      realizedTotal += realized;
+    }
+
+    // 名稱：買入新標的若未給 name，沿用既有；都沒有則留空
+    let name = t.name ?? '';
+    if (!name) {
+      const ex = await db.prepare('SELECT name FROM investments WHERE ticker=? AND name<>"" LIMIT 1')
+        .bind(t.ticker).first<{ name: string }>();
+      name = ex?.name ?? '';
+    }
+
+    const txnType = t.units_delta < 0 ? 'sell' : 'buy';
+    stmts.push(db.prepare(
+      `INSERT INTO investments (id, batch_id, ticker, name, market, date, units, price_per_unit, exchange_rate, fees, tags, txn_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)`,
+    ).bind(`INV-${String(baseNum + i).padStart(3, '0')}`, batchId, t.ticker, name, t.market, date,
+      t.units_delta, t.price_per_unit, fx, t.fees || 0, txnType));
+
+    legs.push({ ticker: t.ticker, units_delta: t.units_delta, realized_pl_twd: realized === null ? null : Math.round(realized) });
+  }
+
+  await db.batch(stmts);
+  return { batch_id: batchId, realized_pl_twd: Math.round(realizedTotal), legs };
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +336,9 @@ export async function getSleeveSummary(db: DB): Promise<SleeveSummary> {
     const px = await db.prepare('SELECT close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 1').bind(h.ticker).first<{ close: number }>();
     const close = px?.close ?? 0;
     const fx = h.market === 'US' ? (usdTwd ?? 1) : 1;
-    const valueTwd = h.units * close * fx;
+    // 台股慣例：units 以「張」計，1 張 = 1000 股（與前端 currency.ts 一致）
+    const lot = h.market === 'TW' ? 1000 : 1;
+    const valueTwd = h.units * lot * close * fx;
     if (sleeveSet.has(h.ticker)) {
       sleeve.push({ ticker: h.ticker, units: h.units, market: h.market, value_twd: valueTwd });
       sleeveVal += valueTwd;

@@ -10,6 +10,7 @@ export interface BatchMarker {
   date: string
   label: string
   amount?: number  // funded amount (TWD) to display at marker
+  kind?: 'contribution' | 'rebalance'  // 轉換用不同顏色
 }
 
 interface TrendChartProps {
@@ -17,6 +18,8 @@ interface TrendChartProps {
   batches?: BatchMarker[]
   showCostLine?: boolean
   showProfitArea?: boolean
+  showCounterfactual?: boolean  // 顯示「若未轉換」對照線
+  showExpected?: boolean        // 顯示「預期增長」未來線
   height?: number
 }
 
@@ -31,6 +34,8 @@ export function TrendChart({
   batches,
   showCostLine = true,
   showProfitArea = false,
+  showCounterfactual = false,
+  showExpected = false,
   height = 300,
 }: TrendChartProps) {
   if (data.length === 0) {
@@ -99,27 +104,57 @@ export function TrendChart({
                 dot={false}
               />
             )}
+            {/* Counterfactual line: 若未轉換 */}
+            {showCounterfactual && (
+              <Line
+                type="monotone"
+                dataKey="counterfactualValue"
+                name="若未轉換"
+                stroke="var(--muted-foreground)"
+                strokeWidth={2}
+                strokeDasharray="2 3"
+                dot={false}
+                connectNulls
+              />
+            )}
+            {/* Expected growth line: 預期增長（未來）*/}
+            {showExpected && (
+              <Line
+                type="monotone"
+                dataKey="expectedValue"
+                name="預期增長"
+                stroke="var(--chart-4)"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={false}
+                connectNulls
+              />
+            )}
           </>
         )}
 
-        {/* Batch markers as vertical reference lines */}
-        {batches?.map((b) => (
-          <ReferenceLine
-            key={b.date}
-            x={b.date}
-            stroke="var(--muted-foreground)"
-            strokeDasharray="4 4"
-            strokeOpacity={0.6}
-          >
-            <Label
-              value={b.amount ? `${b.label} (${formatTWD(b.amount)})` : b.label}
-              position="top"
-              fill="var(--muted-foreground)"
-              fontSize={10}
-              offset={5}
-            />
-          </ReferenceLine>
-        ))}
+        {/* Batch markers as vertical reference lines（轉換用強調色）*/}
+        {batches?.map((b) => {
+          const isReb = b.kind === 'rebalance'
+          return (
+            <ReferenceLine
+              key={b.date}
+              x={b.date}
+              stroke={isReb ? 'var(--chart-3)' : 'var(--muted-foreground)'}
+              strokeDasharray="4 4"
+              strokeOpacity={isReb ? 0.9 : 0.6}
+              strokeWidth={isReb ? 2 : 1}
+            >
+              <Label
+                value={(isReb ? '🔄 ' : '') + (b.amount ? `${b.label} (${formatTWD(b.amount)})` : b.label)}
+                position="top"
+                fill={isReb ? 'var(--chart-3)' : 'var(--muted-foreground)'}
+                fontSize={10}
+                offset={5}
+              />
+            </ReferenceLine>
+          )
+        })}
       </ComposedChart>
     </ResponsiveContainer>
   )

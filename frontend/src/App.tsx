@@ -6,6 +6,7 @@ import { ProfitLossPage } from '@/components/profit-loss/ProfitLossPage'
 import { CategoryPage } from '@/components/category/CategoryPage'
 import { FundingPage } from '@/components/funding/FundingPage'
 import { BatchPage } from '@/components/batch/BatchPage'
+import { RebalancePage } from '@/components/rebalance/RebalancePage'
 import { ManagePage } from '@/components/manage/ManagePage'
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/category" element={<CategoryPage />} />
           <Route path="/funding" element={<FundingPage />} />
           <Route path="/batch" element={<BatchPage />} />
+          <Route path="/rebalance" element={<RebalancePage />} />
           <Route path="/manage" element={<ManagePage />} />
         </Routes>
       </AppShell>

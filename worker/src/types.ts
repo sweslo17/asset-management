@@ -10,6 +10,8 @@ export interface Batch {
   batch_id: string;
   date: string;
   description: string;
+  /** 'contribution'（投入，新資金）| 'rebalance'（轉換，重組持股）。預設 contribution。 */
+  type?: 'contribution' | 'rebalance';
 }
 
 /**
@@ -127,6 +129,32 @@ export interface CreateBatchRequest {
     amount_twd: number;
   }>;
   investments: Array<Omit<Investment, 'id' | 'batch_id'>>;
+}
+
+/**
+ * Request body for POST /api/rebalance（記錄一次轉換）。
+ * trades：每筆是一個淨變動。units_delta 正=買入、負=賣出。
+ * 賣出時系統會以該 ticker 目前平均成本計算已實現損益。
+ */
+export interface RebalanceRequest {
+  date: string;
+  description: string;
+  trades: Array<{
+    ticker: string;
+    name?: string;
+    market: 'TW' | 'US';
+    units_delta: number;       // 正=買、負=賣（台股以「張」計）
+    price_per_unit: number;
+    exchange_rate?: number;    // US 必填；TW 預設 1
+    fees?: number;
+  }>;
+}
+
+/** POST /api/rebalance 回應：含每筆賣出的已實現損益。 */
+export interface RebalanceResponse {
+  batch_id: string;
+  realized_pl_twd: number;
+  legs: Array<{ ticker: string; units_delta: number; realized_pl_twd: number | null }>;
 }
 
 /**
