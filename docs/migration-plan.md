@@ -12,7 +12,7 @@
 | API | Cloudflare Worker（資料層 D1） |
 | DB | **Cloudflare D1**（SQLite） |
 | 價格更新 | **Worker Cron Trigger**（每日，取代 Python＋GitHub Actions）|
-| 人的認證 | **Cloudflare Access**（email 白名單，保護 Pages）|
+| 人的認證 | **共用密鑰**（AuthGate 輸入 API_KEY）+ CORS 鎖 Pages 網域。（Access 因付款問題跳過，日後可加）|
 | 機器讀取 | `GET /api/sleeve-summary?token=`（唯讀，judgement 用）|
 
 ---
@@ -79,14 +79,21 @@ curl "https://asset-management-api.asset-management-api.workers.dev/api/sleeve-s
 4. Deploy → 得到 `https://asset-management.pages.dev`。
 5. 開啟，用 AuthGate 輸入 API_KEY 確認能讀資料。
 
-### 步驟 5：Cloudflare Access（保護「特定的人」）
-1. Dashboard → **Zero Trust**（首次建 team 名稱，如 `roger`）。
-2. Access → Applications → Add → **Self-hosted**。
-3. Application domain：`asset-management.pages.dev`。
-4. Add policy：name `allowed-users`、Action Allow、Include → Emails → 你（與要分享的人）的 email。
-5. 身分提供者用 One-time PIN 或 Google。存檔。
-   - 此後開 Pages 網址需登入、只白名單 email 進得去。
-   - 唯讀端點 `/api/sleeve-summary` 在 Worker 網域、走自己的 token，不受此 Access 影響（不用設 bypass）。
+### 步驟 5：認證（跳過 Cloudflare Access — 改用共用密鑰 + CORS 鎖定）
+> Cloudflare Access 需綁卡驗證，付款失敗無法啟用。改用既有的共用密鑰模式：
+> 前端公開可載入，但要讀任何資料都需輸入 API_KEY（Worker 驗 X-API-Key）。
+> 安全取捨：少了個人身分/單獨撤銷，但「知道 key 的人才進得去」對自用足夠。付款問題解決後可隨時回頭加 Access（地基都在）。
+
+**零成本補強（已內建程式，你只需設一個 Worker 變數）**：把 CORS 鎖到你的 Pages 網域，降低 key 在別的網站被瀏覽器端盜用的風險。
+```bash
+cd asset-management/worker
+wrangler secret put ALLOWED_ORIGINS
+# 值填你的 Pages 網址（無結尾斜線），例：https://asset-management-web.pages.dev
+# 多個用逗號分隔。未設則維持 '*'（相容）。
+wrangler deploy
+```
+注意：`/api/sleeve-summary` 走 token、非瀏覽器請求，不受 CORS 影響，judgement 仍可正常讀取。
+另確保 API_KEY 是夠長夠獨特的密碼。
 
 ### 步驟 6：接上 investment-judgement
 把步驟 2 的 READ_TOKEN 貼進 `investment-judgement/config/portfolio.yaml`：

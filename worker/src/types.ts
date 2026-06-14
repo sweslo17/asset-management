@@ -101,6 +101,12 @@ export interface Env {
   API_KEY: string;
   /** Read-only token for GET /api/sleeve-summary?token= (used by investment-judgement). */
   READ_TOKEN: string;
+  /**
+   * Optional comma-separated list of allowed browser origins for CORS.
+   * 未設定 → '*'（相容）。設為 Pages 網址可把 key 鎖在你的網站，降低瀏覽器端盜用。
+   * 例：https://asset-management-web.pages.dev
+   */
+  ALLOWED_ORIGINS?: string;
 }
 
 // ---------------------------------------------------------------------------

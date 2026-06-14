@@ -55,15 +55,34 @@ import { fetchYahooPrices, fetchYahooRates } from './yahoo';
 // CORS / responses
 // ---------------------------------------------------------------------------
 
-const ALLOWED_ORIGIN = '*';
-
-function corsHeaders(): Record<string, string> {
+function corsHeaders(origin = '*'): Record<string, string> {
   return {
-    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
     'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
+}
+
+/**
+ * 解析這次請求該回的 Access-Control-Allow-Origin。
+ * 未設 ALLOWED_ORIGINS → '*'。設了 → 若請求 Origin 在白名單則回該 Origin，否則回第一個白名單值。
+ */
+function resolveOrigin(env: Env, request: Request): string {
+  const allow = (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (allow.length === 0) return '*';
+  const origin = request.headers.get('Origin');
+  if (origin && allow.includes(origin)) return origin;
+  return allow[0] ?? '*';
+}
+
+/** 在回應上覆寫 Access-Control-Allow-Origin（集中處理 CORS）。 */
+function withCors(resp: Response, origin: string): Response {
+  const r = new Response(resp.body, resp);
+  r.headers.set('Access-Control-Allow-Origin', origin);
+  r.headers.set('Vary', 'Origin');
+  return r;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -346,71 +365,80 @@ function matchRoute(method: string, pathname: string): Route {
 // Worker fetch handler
 // ---------------------------------------------------------------------------
 
+async function handleRequest(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const { method } = request;
+  const pathname = url.pathname;
+
+  if (method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
+
+  // sleeve-summary 走唯讀 token（query 參數），不需要 X-API-Key——
+  // 因為 investment-judgement 排程的 web_fetch 無法帶自訂 header。
+  if (method === 'GET' && pathname === '/api/sleeve-summary') {
+    const token = url.searchParams.get('token');
+    if (!token || token !== env.READ_TOKEN) {
+      return errorResponse('Unauthorized: invalid or missing read token.', 401);
+    }
+    try {
+      return await handleSleeveSummary(env);
+    } catch (err) {
+      return errorResponse(err instanceof Error ? err.message : 'Unexpected error.', 500);
+    }
+  }
+
+  // 其餘路由：X-API-Key（人/前端）。
+  const apiKey = request.headers.get('X-API-Key');
+  if (!apiKey || apiKey !== env.API_KEY) {
+    return errorResponse('Unauthorized: invalid or missing API key.', 401);
+  }
+
+  const matched = matchRoute(method, pathname);
+  if (matched === null) return errorResponse(`Route not found: ${method} ${pathname}`, 404);
+
+  if (matched.route === 'search_ticker') matched.query = url.searchParams.get('q') ?? '';
+  if (matched.route === 'quote') {
+    matched.ticker = url.searchParams.get('ticker') ?? '';
+    matched.date = url.searchParams.get('date') ?? '';
+    matched.market = url.searchParams.get('market') ?? '';
+  }
+
+  try {
+    switch (matched.route) {
+      case 'get_portfolio': return await handleGetPortfolio(env);
+      case 'sleeve_summary': return await handleSleeveSummary(env);
+      case 'search_ticker': return await handleSearchTicker(matched.query);
+      case 'create_batch': return await handleCreateBatch(request, env);
+      case 'update_investment': return await handleUpdateInvestment(matched.id, request, env);
+      case 'delete_investment': return await handleDeleteInvestment(matched.id, env);
+      case 'update_batch': return await handleUpdateBatch(matched.id, request, env);
+      case 'delete_batch': return await handleDeleteBatch(matched.id, env);
+      case 'upsert_ticker_tags': return await handleUpsertTickerTags(request, env);
+      case 'delete_dimension': return await handleDeleteDimension(matched.name, env);
+      case 'rename_dimension': return await handleRenameDimension(matched.name, request, env);
+      case 'backfill': return await handleBackfill(env);
+      case 'quote': return await handleQuote(matched.ticker, matched.date, matched.market);
+      default: {
+        const _exhaustive: never = matched;
+        void _exhaustive;
+        return errorResponse('Unhandled route.', 500);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+    return errorResponse(message, 500);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Worker entry
+// ---------------------------------------------------------------------------
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const { method } = request;
-    const pathname = url.pathname;
-
-    if (method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() });
-    }
-
-    // sleeve-summary 走唯讀 token（query 參數），不需要 X-API-Key——
-    // 因為 investment-judgement 排程的 web_fetch 無法帶自訂 header。
-    if (method === 'GET' && pathname === '/api/sleeve-summary') {
-      const token = url.searchParams.get('token');
-      if (!token || token !== env.READ_TOKEN) {
-        return errorResponse('Unauthorized: invalid or missing read token.', 401);
-      }
-      try {
-        return await handleSleeveSummary(env);
-      } catch (err) {
-        return errorResponse(err instanceof Error ? err.message : 'Unexpected error.', 500);
-      }
-    }
-
-    // 其餘路由：X-API-Key（人/前端）。前端另由 Cloudflare Access 在邊緣把關。
-    const apiKey = request.headers.get('X-API-Key');
-    if (!apiKey || apiKey !== env.API_KEY) {
-      return errorResponse('Unauthorized: invalid or missing API key.', 401);
-    }
-
-    const matched = matchRoute(method, pathname);
-    if (matched === null) return errorResponse(`Route not found: ${method} ${pathname}`, 404);
-
-    if (matched.route === 'search_ticker') matched.query = url.searchParams.get('q') ?? '';
-    if (matched.route === 'quote') {
-      matched.ticker = url.searchParams.get('ticker') ?? '';
-      matched.date = url.searchParams.get('date') ?? '';
-      matched.market = url.searchParams.get('market') ?? '';
-    }
-
-    try {
-      switch (matched.route) {
-        case 'get_portfolio': return await handleGetPortfolio(env);
-        case 'sleeve_summary': return await handleSleeveSummary(env);
-        case 'search_ticker': return await handleSearchTicker(matched.query);
-        case 'create_batch': return await handleCreateBatch(request, env);
-        case 'update_investment': return await handleUpdateInvestment(matched.id, request, env);
-        case 'delete_investment': return await handleDeleteInvestment(matched.id, env);
-        case 'update_batch': return await handleUpdateBatch(matched.id, request, env);
-        case 'delete_batch': return await handleDeleteBatch(matched.id, env);
-        case 'upsert_ticker_tags': return await handleUpsertTickerTags(request, env);
-        case 'delete_dimension': return await handleDeleteDimension(matched.name, env);
-        case 'rename_dimension': return await handleRenameDimension(matched.name, request, env);
-        case 'backfill': return await handleBackfill(env);
-        case 'quote': return await handleQuote(matched.ticker, matched.date, matched.market);
-        default: {
-          const _exhaustive: never = matched;
-          void _exhaustive;
-          return errorResponse('Unhandled route.', 500);
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
-      return errorResponse(message, 500);
-    }
+    const origin = resolveOrigin(env, request);
+    return withCors(await handleRequest(request, env), origin);
   },
 
   /**
