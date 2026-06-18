@@ -28,6 +28,7 @@ import {
   updateBatch,
   deleteBatch,
   upsertTickerTags,
+  upsertMetadata,
   deleteDimension,
   renameDimension,
   getEarliestDatesByTicker,
@@ -197,6 +198,13 @@ async function handleDeleteBatch(id: string, env: Env): Promise<Response> {
   });
 }
 
+async function handleUpsertMetadata(request: Request, env: Env): Promise<Response> {
+  const body = await request.json() as { key?: string; value?: string };
+  if (!body.key) return errorResponse('Request body must include key.', 400);
+  await upsertMetadata(env.DB, body.key, String(body.value ?? ''));
+  return jsonResponse({ key: body.key, value: body.value });
+}
+
 async function handleUpsertTickerTags(request: Request, env: Env): Promise<Response> {
   const body: UpsertTickerTagsRequest = await request.json();
   if (!body.assignments || !Array.isArray(body.assignments)) {
@@ -350,6 +358,7 @@ type Route =
   | { route: 'search_ticker'; query: string }
   | { route: 'create_batch' }
   | { route: 'rebalance' }
+  | { route: 'upsert_metadata' }
   | { route: 'update_investment'; id: string }
   | { route: 'delete_investment'; id: string }
   | { route: 'update_batch'; id: string }
@@ -368,6 +377,7 @@ function matchRoute(method: string, pathname: string): Route {
   if (method === 'GET' && pathname === '/api/quote') return { route: 'quote', ticker: '', date: '', market: '' };
   if (method === 'POST' && pathname === '/api/batches') return { route: 'create_batch' };
   if (method === 'POST' && pathname === '/api/rebalance') return { route: 'rebalance' };
+  if (method === 'POST' && pathname === '/api/metadata') return { route: 'upsert_metadata' };
   if (method === 'PUT' && pathname === '/api/ticker-tags') return { route: 'upsert_ticker_tags' };
   if (method === 'POST' && pathname === '/api/backfill') return { route: 'backfill' };
 
@@ -438,6 +448,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       case 'search_ticker': return await handleSearchTicker(matched.query);
       case 'create_batch': return await handleCreateBatch(request, env);
       case 'rebalance': return await handleRebalance(request, env);
+      case 'upsert_metadata': return await handleUpsertMetadata(request, env);
       case 'update_investment': return await handleUpdateInvestment(matched.id, request, env);
       case 'delete_investment': return await handleDeleteInvestment(matched.id, env);
       case 'update_batch': return await handleUpdateBatch(matched.id, request, env);

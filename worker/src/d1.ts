@@ -254,6 +254,15 @@ export async function renameDimension(db: DB, name: string, newName: string): Pr
 }
 
 // ---------------------------------------------------------------------------
+// metadata 寫入（供本機橋接腳本推送 judgement 的動態預期報酬等）
+// ---------------------------------------------------------------------------
+
+export async function upsertMetadata(db: DB, key: string, value: string): Promise<void> {
+  await db.prepare('INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .bind(key, value).run();
+}
+
+// ---------------------------------------------------------------------------
 // 價格 / 匯率（backfill 與價格腳本用）
 // ---------------------------------------------------------------------------
 

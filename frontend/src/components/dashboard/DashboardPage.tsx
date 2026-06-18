@@ -115,8 +115,13 @@ export function DashboardPage() {
     ? lastWithCf.totalValue - (lastWithCf.counterfactualValue as number)
     : null
 
-  // 預期資產增長線：從今日淨值，按混合預期年化報酬，畫到 50 歲（2038）
-  const EXPECTED_ANNUAL_RETURN = 0.077  // 與 investment-judgement 總淨值推估的混合 g 一致（regime 變動會浮動）
+  // 預期資產增長線：預期報酬優先讀 metadata（由 judgement 每日推送的動態 g，隨 regime 變動），
+  // 缺值時 fallback 7.7%（總淨值混合估計）。
+  const metaReturn = Number(
+    data.metadata.find((m) => m.key === 'expected_annual_return')?.value ?? '',
+  )
+  const EXPECTED_ANNUAL_RETURN = Number.isFinite(metaReturn) && metaReturn > 0 ? metaReturn : 0.077
+  const expectedReturnIsLive = Number.isFinite(metaReturn) && metaReturn > 0
   const TARGET_DATE = '2038-12-31'      // 1988 + 50 歲
   const chartSeries: typeof timeSeries = [...timeSeries]
   if (chartSeries.length > 0) {
@@ -204,7 +209,8 @@ export function DashboardPage() {
           <CardTitle>資產趨勢{hasRebalance ? '（含「若未轉換」對照）' : ''}</CardTitle>
           {expectedAt50 !== null && (
             <p className="text-sm text-muted-foreground">
-              預期增長 @ {(EXPECTED_ANNUAL_RETURN * 100).toFixed(1)}%/年 → 50 歲約 {formatTWD(expectedAt50)}
+              預期增長 @ {(EXPECTED_ANNUAL_RETURN * 100).toFixed(1)}%/年
+              {expectedReturnIsLive ? '（judgement 即時）' : '（預設值）'} → 50 歲約 {formatTWD(expectedAt50)}
             </p>
           )}
         </CardHeader>
