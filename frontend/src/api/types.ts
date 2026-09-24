@@ -106,8 +106,14 @@ export interface TickerSearchResult {
 }
 
 export interface BackfillResponse {
+  mode: 'recent' | 'fill' | 'rebuild';
   prices_added: number;
   rates_added: number;
+  /** 各來源抓取失敗 / 無資料的訊息；非空代表這次更新不完整 */
+  errors: string[];
+  prices_as_of: string | null;
+  rates_as_of: string | null;
+  stale: boolean;
 }
 
 export interface QuoteResponse {

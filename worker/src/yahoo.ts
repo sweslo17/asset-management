@@ -19,6 +19,10 @@ export interface YahooRateRecord {
 interface YahooChartResponse {
   chart: {
     result: Array<{
+      meta: {
+        /** 交易所相對 UTC 的秒數偏移（含夏令時間），如 America/New_York 夏季為 -14400。 */
+        gmtoffset: number;
+      };
       timestamp: number[];
       indicators: {
         quote: Array<{
@@ -38,16 +42,15 @@ function dateToUnix(dateStr: string): number {
 }
 
 /**
- * Converts a Unix timestamp (seconds) to a YYYY-MM-DD date string.
+ * Converts a Unix timestamp (seconds) to the exchange-local YYYY-MM-DD date.
  *
- * Yahoo Finance returns timestamps at midnight in the exchange's local
- * timezone (e.g. +08:00 for TW tickers), not UTC. Adding a 12-hour offset
- * before converting to UTC ensures the calendar date is always correct
- * regardless of timezone — the same approach used by yfinance.
+ * Yahoo 日 K 的 timestamp 是「該交易日開盤時間」（美股 13:30 UTC、台股 01:00 UTC、
+ * 外匯 23:00 UTC 前一天），盤中最後一根則是最新成交時間，都不是 UTC 午夜。
+ * 以交易所的 gmtoffset 換成當地時間再取日期，才能得到正確的交易日
+ * （舊做法固定 +12h 會讓美股整體晚一天）。
  */
-function unixToDate(ts: number): string {
-  const HALF_DAY = 43200; // 12 hours in seconds
-  const d = new Date((ts + HALF_DAY) * 1000);
+function unixToLocalDate(ts: number, gmtoffset: number): string {
+  const d = new Date((ts + gmtoffset) * 1000);
   const year = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
@@ -84,6 +87,7 @@ async function fetchChart(
   }
 
   const entry = result[0]!;
+  const gmtoffset = entry.meta?.gmtoffset ?? 0;
   const timestamps = entry.timestamp ?? [];
   const closes = entry.indicators.quote[0]?.close ?? [];
 
@@ -92,7 +96,7 @@ async function fetchChart(
     const ts = timestamps[i];
     const close = closes[i];
     if (ts !== undefined && close !== null && close !== undefined) {
-      records.push({ date: unixToDate(ts), close });
+      records.push({ date: unixToLocalDate(ts, gmtoffset), close });
     }
   }
 

@@ -104,6 +104,11 @@ export interface Env {
   /** Read-only token for GET /api/sleeve-summary?token= (used by investment-judgement). */
   READ_TOKEN: string;
   /**
+   * Optional token accepted in the X-Cron-Token header for POST /api/backfill only
+   * (GitHub Actions 備援排程用，權限僅限更新價格)。未設定則停用。
+   */
+  CRON_TOKEN?: string;
+  /**
    * Optional comma-separated list of allowed browser origins for CORS.
    * 未設定 → '*'（相容）。設為 Pages 網址可把 key 鎖在你的網站，降低瀏覽器端盜用。
    * 例：https://asset-management-web.pages.dev
@@ -184,11 +189,26 @@ export interface RenameDimensionRequest {
 }
 
 /**
+ * POST /api/backfill?mode= 的模式：
+ * - recent ：只抓近幾天，並「覆寫」窗口內資料（修正盤中寫入的暫時價）。排程 / 備援用。
+ * - fill   ：從最早投資日抓全史，只補缺的日期（預設，前端「回補」按鈕）。
+ * - rebuild：抓全史後在同一交易內清空重寫；任一來源抓取失敗則不動資料。
+ */
+export type BackfillMode = 'recent' | 'fill' | 'rebuild';
+
+/**
  * Response body for POST /api/backfill.
  */
 export interface BackfillResponse {
+  mode: BackfillMode;
+  /** 本次寫入（新增或覆寫）的筆數 */
   prices_added: number;
   rates_added: number;
+  /** 各來源抓取失敗 / 無資料的訊息；非空代表這次更新不完整 */
+  errors: string[];
+  prices_as_of: string | null;
+  rates_as_of: string | null;
+  stale: boolean;
 }
 
 /**

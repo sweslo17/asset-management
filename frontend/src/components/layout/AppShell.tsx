@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { StaleDataBanner } from '@/components/common/StaleDataBanner'
 
 const navItems = [
   { path: '/', label: '總覽', icon: '📊' },
@@ -42,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Main content */}
       <main className="pb-20 md:pb-0 md:pl-56">
         <div className="mx-auto max-w-5xl px-4 py-6">
+          <StaleDataBanner />
           {children}
         </div>
       </main>

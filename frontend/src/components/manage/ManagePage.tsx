@@ -21,7 +21,10 @@ export function ManagePage() {
     setResult(null)
     backfill.mutate(undefined, {
       onSuccess: (res) => {
-        setResult({ message: `已新增 ${res.prices_added} 筆價格、${res.rates_added} 筆匯率`, isError: false })
+        const summary = `已寫入 ${res.prices_added} 筆價格、${res.rates_added} 筆匯率（價格至 ${res.prices_as_of ?? '無'}、匯率至 ${res.rates_as_of ?? '無'}）`
+        setResult(res.errors.length > 0
+          ? { message: `${summary}；部分來源失敗：${res.errors.join('；')}`, isError: true }
+          : { message: summary, isError: false })
       },
       onError: (err) => {
         setResult({ message: `回補失敗：${err.message}`, isError: true })

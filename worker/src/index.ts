@@ -13,7 +13,8 @@
  *   PUT    /api/ticker-tags             → Batch upsert ticker tag assignments
  *   DELETE /api/dimensions/:name        → Delete all tags in a dimension
  *   PUT    /api/dimensions/:name/rename → Rename a dimension
- *   POST   /api/backfill                → Backfill historical prices & rates
+ *   POST   /api/backfill?mode=          → 更新價格/匯率（recent|fill|rebuild，見 BackfillMode）；
+ *                                          X-API-Key 或 X-Cron-Token（僅此路由）皆可
  *   GET    /api/quote                   → Closing price (and USD/TWD for US) on a given date
  */
 
@@ -34,11 +35,13 @@ import {
   getEarliestDatesByTicker,
   getExistingPriceKeys,
   getExistingRateDates,
-  upsertPrices,
-  upsertRates,
+  writeMarketData,
+  getDataFreshness,
   getSleeveSummary,
 } from './d1';
+import { isStale, subtractDays, todayUtc } from './dates';
 import type {
+  BackfillMode,
   BackfillResponse,
   Batch,
   CreateBatchRequest,
@@ -122,7 +125,13 @@ async function handleGetPortfolio(env: Env): Promise<Response> {
 }
 
 async function handleSleeveSummary(env: Env): Promise<Response> {
-  return jsonResponse(await getSleeveSummary(env.DB));
+  const [summary, freshness] = await Promise.all([getSleeveSummary(env.DB), getDataFreshness(env.DB)]);
+  // 讓 investment-judgement 能判斷資料是否過期（as_of 只是最新匯率日）。
+  return jsonResponse({
+    ...summary,
+    prices_as_of: freshness.prices_as_of,
+    stale: isStale([freshness.prices_as_of, freshness.rates_as_of]),
+  });
 }
 
 async function handleCreateBatch(request: Request, env: Env): Promise<Response> {
@@ -248,77 +257,94 @@ async function handleSearchTicker(query: string): Promise<Response> {
   return jsonResponse(quotes);
 }
 
-/**
- * 共用的 backfill 核心。
- * @param recentDays 若提供，採增量模式：每個 ticker 只抓「今天往前 recentDays 天」；
- *                   否則採完整模式：從每個 ticker 最早投資日抓全史。
- */
-async function runBackfill(env: Env, recentDays?: number): Promise<BackfillResponse> {
+/** recent 模式抓取的天數（涵蓋農曆年等長假，窗口內至少有交易日才能判斷「無資料」是異常）。 */
+const RECENT_DAYS = 14;
+/** 全史模式往最早投資日之前多抓的天數：投資日落在週末/假日時，仍查得到「當日或之前」的價格。 */
+const LOOKBACK_PAD_DAYS = 7;
+
+/** 依 key 去重（同 key 保留最後一筆＝最新值），並排除 skip 中已存在的 key。 */
+function dedupeRecords<T>(records: T[], keyOf: (r: T) => string, skip?: Set<string>): T[] {
+  const byKey = new Map<string, T>();
+  for (const r of records) {
+    const k = keyOf(r);
+    if (!skip?.has(k)) byKey.set(k, r);
+  }
+  return Array.from(byKey.values());
+}
+
+/** 共用的 backfill 核心，模式說明見 BackfillMode。 */
+async function runBackfill(env: Env, mode: BackfillMode): Promise<BackfillResponse> {
   const tickerEarliestDate = await getEarliestDatesByTicker(env.DB);
-  if (tickerEarliestDate.size === 0) {
-    return { prices_added: 0, rates_added: 0 };
-  }
-  const [existingPriceKeys, existingRateDates] = await Promise.all([
-    getExistingPriceKeys(env.DB),
-    getExistingRateDates(env.DB),
-  ]);
+  const errors: string[] = [];
+  let pricesWritten = 0;
+  let ratesWritten = 0;
 
-  // 增量模式：起算日改為 today - recentDays（但不早於該 ticker 最早投資日）。
-  const tickerEntries: Array<[string, string]> = Array.from(tickerEarliestDate.entries());
-  if (recentDays !== undefined) {
-    const since = subtractDays(new Date().toISOString().slice(0, 10), recentDays);
-    for (const e of tickerEntries) {
-      if (since > e[1]) e[1] = since;
-    }
-  }
-  const priceResults = await Promise.all(
-    tickerEntries.map(([ticker, startDate]) =>
-      fetchYahooPrices(ticker, startDate).catch((err) => {
-        console.error(`[Backfill] prices ${ticker}: ${err}`);
+  if (tickerEarliestDate.size > 0) {
+    const recentSince = mode === 'recent' ? subtractDays(todayUtc(), RECENT_DAYS) : null;
+    const startDateFor = (earliest: string): string => {
+      const padded = subtractDays(earliest, LOOKBACK_PAD_DAYS);
+      return recentSince && recentSince > padded ? recentSince : padded;
+    };
+    // 抓取失敗或回傳空資料都記進 errors（Yahoo 擋 IP 時常是空結果而非 HTTP 錯誤）。
+    const fetchOrRecord = async <T>(label: string, p: Promise<T[]>): Promise<T[]> => {
+      try {
+        const recs = await p;
+        if (recs.length === 0) errors.push(`${label}: no data`);
+        return recs;
+      } catch (err) {
+        errors.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
         return [];
-      }),
-    ),
-  );
-  let rateStartDate = Array.from(tickerEarliestDate.values()).reduce((a, b) => (a < b ? a : b));
-  if (recentDays !== undefined) {
-    const since = subtractDays(new Date().toISOString().slice(0, 10), recentDays);
-    if (since > rateStartDate) rateStartDate = since;
-  }
-  const rateResults = await fetchYahooRates(rateStartDate).catch((err) => {
-    console.error(`[Backfill] rates: ${err}`);
-    return [];
-  });
-
-  const newPrices = [];
-  for (const records of priceResults) {
-    for (const rec of records) {
-      const key = `${rec.ticker}|${rec.date}`;
-      if (!existingPriceKeys.has(key)) {
-        newPrices.push(rec);
-        existingPriceKeys.add(key);
       }
+    };
+
+    const earliestOverall = Array.from(tickerEarliestDate.values()).reduce((a, b) => (a < b ? a : b));
+    const [priceResults, rateRecords] = await Promise.all([
+      Promise.all(Array.from(tickerEarliestDate, ([ticker, earliest]) =>
+        fetchOrRecord(ticker, fetchYahooPrices(ticker, startDateFor(earliest))))),
+      fetchOrRecord('USDTWD=X', fetchYahooRates(startDateFor(earliestOverall))),
+    ]);
+
+    // fill 只補缺；recent 覆寫窗口；rebuild 全部重寫。
+    const [skipPrices, skipRates] = mode === 'fill'
+      ? await Promise.all([getExistingPriceKeys(env.DB), getExistingRateDates(env.DB)])
+      : [undefined, undefined];
+    const prices = dedupeRecords(priceResults.flat(), (r) => `${r.ticker}|${r.date}`, skipPrices);
+    const rates = dedupeRecords(rateRecords, (r) => r.date, skipRates);
+
+    if (mode === 'rebuild' && errors.length > 0) {
+      console.error(`[Backfill] rebuild aborted, data untouched: ${errors.join('; ')}`);
+    } else {
+      await writeMarketData(env.DB, prices, rates, { replaceAll: mode === 'rebuild' });
+      pricesWritten = prices.length;
+      ratesWritten = rates.length;
     }
+    if (errors.length === 0) await upsertMetadata(env.DB, 'last_update', new Date().toISOString());
   }
-  const newRates = [];
-  for (const rec of rateResults) {
-    if (!existingRateDates.has(rec.date)) {
-      newRates.push(rec);
-      existingRateDates.add(rec.date);
-    }
-  }
-  await upsertPrices(env.DB, newPrices);
-  await upsertRates(env.DB, newRates);
-  return { prices_added: newPrices.length, rates_added: newRates.length };
+
+  const freshness = await getDataFreshness(env.DB);
+  const result: BackfillResponse = {
+    mode,
+    prices_added: pricesWritten,
+    rates_added: ratesWritten,
+    errors,
+    ...freshness,
+    stale: isStale([freshness.prices_as_of, freshness.rates_as_of]),
+  };
+  const summary = `[Backfill] mode=${mode} prices=${pricesWritten} rates=${ratesWritten} ` +
+    `prices_as_of=${result.prices_as_of} rates_as_of=${result.rates_as_of} stale=${result.stale}`;
+  if (errors.length > 0 || result.stale) console.error(`${summary} errors=${JSON.stringify(errors)}`);
+  else console.log(summary);
+  return result;
 }
 
-async function handleBackfill(env: Env): Promise<Response> {
-  return jsonResponse(await runBackfill(env));
-}
+const BACKFILL_MODES: readonly BackfillMode[] = ['recent', 'fill', 'rebuild'];
 
-function subtractDays(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - days);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+async function handleBackfill(modeParam: string, env: Env): Promise<Response> {
+  const mode = (modeParam || 'fill') as BackfillMode;
+  if (!BACKFILL_MODES.includes(mode)) {
+    return errorResponse(`Invalid mode "${modeParam}"; expected one of ${BACKFILL_MODES.join(', ')}`, 400);
+  }
+  return jsonResponse(await runBackfill(env, mode));
 }
 
 async function handleQuote(ticker: string, date: string, market: string): Promise<Response> {
@@ -366,7 +392,7 @@ type Route =
   | { route: 'upsert_ticker_tags' }
   | { route: 'delete_dimension'; name: string }
   | { route: 'rename_dimension'; name: string }
-  | { route: 'backfill' }
+  | { route: 'backfill'; mode: string }
   | { route: 'quote'; ticker: string; date: string; market: string }
   | null;
 
@@ -379,7 +405,7 @@ function matchRoute(method: string, pathname: string): Route {
   if (method === 'POST' && pathname === '/api/rebalance') return { route: 'rebalance' };
   if (method === 'POST' && pathname === '/api/metadata') return { route: 'upsert_metadata' };
   if (method === 'PUT' && pathname === '/api/ticker-tags') return { route: 'upsert_ticker_tags' };
-  if (method === 'POST' && pathname === '/api/backfill') return { route: 'backfill' };
+  if (method === 'POST' && pathname === '/api/backfill') return { route: 'backfill', mode: '' };
 
   const investmentMatch = pathname.match(/^\/api\/investments\/([^/]+)$/);
   if (investmentMatch && investmentMatch[1] !== undefined) {
@@ -426,8 +452,12 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   // 其餘路由：X-API-Key（人/前端）。
+  // 例外：POST /api/backfill 也接受 X-Cron-Token（GitHub Actions 備援排程，權限只到更新價格）。
   const apiKey = request.headers.get('X-API-Key');
-  if (!apiKey || apiKey !== env.API_KEY) {
+  const cronToken = request.headers.get('X-Cron-Token');
+  const isCronBackfill = method === 'POST' && pathname === '/api/backfill'
+    && !!env.CRON_TOKEN && cronToken === env.CRON_TOKEN;
+  if (!isCronBackfill && (!apiKey || apiKey !== env.API_KEY)) {
     return errorResponse('Unauthorized: invalid or missing API key.', 401);
   }
 
@@ -435,6 +465,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (matched === null) return errorResponse(`Route not found: ${method} ${pathname}`, 404);
 
   if (matched.route === 'search_ticker') matched.query = url.searchParams.get('q') ?? '';
+  if (matched.route === 'backfill') matched.mode = url.searchParams.get('mode') ?? '';
   if (matched.route === 'quote') {
     matched.ticker = url.searchParams.get('ticker') ?? '';
     matched.date = url.searchParams.get('date') ?? '';
@@ -456,7 +487,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       case 'upsert_ticker_tags': return await handleUpsertTickerTags(request, env);
       case 'delete_dimension': return await handleDeleteDimension(matched.name, env);
       case 'rename_dimension': return await handleRenameDimension(matched.name, request, env);
-      case 'backfill': return await handleBackfill(env);
+      case 'backfill': return await handleBackfill(matched.mode, env);
       case 'quote': return await handleQuote(matched.ticker, matched.date, matched.market);
       default: {
         const _exhaustive: never = matched;
@@ -481,18 +512,16 @@ export default {
   },
 
   /**
-   * Cron 排程：每日更新價格與匯率（增量，近 7 天）。
-   * 取代原本的 GitHub Actions + Python 腳本。
-   * 排程設定見 wrangler.toml [triggers]。
+   * Cron 排程：每日更新價格與匯率（recent 模式）。排程設定見 wrangler.toml [triggers]；
+   * GitHub Actions（.github/workflows/update-prices.yml）另有備援排程打 /api/backfill?mode=recent。
+   * 更新不完整或資料過期時丟出錯誤，讓這次排程在 Cloudflare 觀測中標記為失敗。
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
-        try {
-          const r = await runBackfill(env, 7);
-          console.log(`[Cron] prices +${r.prices_added}, rates +${r.rates_added}`);
-        } catch (err) {
-          console.error(`[Cron] backfill failed: ${err instanceof Error ? err.message : err}`);
+        const r = await runBackfill(env, 'recent');
+        if (r.errors.length > 0 || r.stale) {
+          throw new Error(`[Cron] incomplete update: errors=${JSON.stringify(r.errors)} stale=${r.stale}`);
         }
       })(),
     );

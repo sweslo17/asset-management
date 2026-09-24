@@ -14,13 +14,17 @@ database_id = "63417f5f-0d7c-4fae-9ac7-11ee25d59cf1"
 # 認證 secrets（用 wrangler secret put 設定，勿寫死）：
 #   wrangler secret put API_KEY        # 前端/人用
 #   wrangler secret put READ_TOKEN     # investment-judgement 唯讀用
+#   wrangler secret put CRON_TOKEN     # GitHub Actions 備援排程用（只能打 POST /api/backfill），
+#                                      # 同值設到 repo secret CRON_TOKEN
 
 # ---------------------------------------------------------------------------
-# Cron 排程：每日更新價格/匯率（取代原 GitHub Actions + Python 腳本）
-# 台灣時間 = UTC+8。原排程：14:00 台（TW 收盤後）、06:00 台（US 收盤後）。
+# Cron 排程：每日更新價格/匯率（UTC）。06:00 = 台股收盤後、22:00 = 美股收盤後。
+# 注意：Cloudflare 的星期欄是 1=週日（Quartz 式），"1-5" 其實是週日~週四，
+# 所以一律用英文縮寫避免歧義。
+# 備援：.github/workflows/update-prices.yml 會在 30 分鐘後打 /api/backfill?mode=recent。
 # ---------------------------------------------------------------------------
 [triggers]
-crons = ["0 6 * * 1-5", "0 22 * * 1-5"]
+crons = ["0 6 * * MON-FRI", "0 22 * * MON-FRI"]
 
 # ---------------------------------------------------------------------------
 # Routes

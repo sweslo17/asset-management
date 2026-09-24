@@ -1,49 +1,48 @@
 # =============================================================================
-# DEPRECATED（Sheets→D1 遷移後停用）
-# 價格/匯率更新已改由 Cloudflare Worker Cron Trigger 處理（見 worker/wrangler.toml
-# [triggers] 與 worker/src/index.ts 的 scheduled()）。
-# 此 workflow 已移除排程，僅保留手動觸發以備不時之需；確認新流程運作後可整檔刪除，
-# 並刪掉 repo 的 GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_SHEETS_ID secrets。
+# 價格/匯率更新的備援排程 + 過期告警
+#
+# 主要排程是 Cloudflare Worker Cron（worker/wrangler.toml [triggers]），但它曾無聲停擺
+# （2026-09-17 起完全不觸發）。這裡在 Worker cron 之後 30 分鐘再打一次
+# POST /api/backfill?mode=recent（覆寫近幾天，重複執行無副作用），並檢查回應：
+#   - 有來源抓取失敗（errors 非空）或資料過期（stale）→ job 失敗 → GitHub 寄通知信。
+#
+# 需要：
+#   - repo variable API_BASE_URL（與前端部署共用）
+#   - repo secret  CRON_TOKEN（與 Worker secret CRON_TOKEN 同值）
+# 注意：公開 repo 若 60 天沒有任何活動，GitHub 會自動停用排程 workflow，需到 Actions 頁手動重新啟用。
 # =============================================================================
-name: Update Prices & Exchange Rates (DEPRECATED)
+name: Update Prices (fallback)
 
 on:
-  workflow_dispatch: {}
+  schedule:
+    # GitHub 用標準 cron：1-5 = 週一~週五（與 Cloudflare 的 1=週日不同）
+    - cron: '30 6 * * 1-5'    # 台股收盤後
+    - cron: '30 22 * * 1-5'   # 美股收盤後
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'backfill mode'
+        type: choice
+        options: [recent, fill, rebuild]
+        default: recent
 
 jobs:
-  update:
+  refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        working-directory: scripts
-        run: poetry install --no-interaction --no-root
-
-      - name: Write service account JSON
-        working-directory: scripts
-        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > service-account.json
-
-      - name: Run price updater
-        working-directory: scripts
+      - name: Trigger backfill and check freshness
         env:
-          PORTFOLIO_GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-          PORTFOLIO_SERVICE_ACCOUNT_JSON_PATH: service-account.json
-        run: PYTHONPATH=src poetry run python -m portfolio_updater.main
-
-      - name: Cleanup
-        if: always()
-        working-directory: scripts
-        run: rm -f service-account.json
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
+          MODE: ${{ inputs.mode || 'recent' }}
+        run: |
+          set -euo pipefail
+          url="${API_BASE_URL%/}/api/backfill?mode=${MODE}"
+          resp=$(curl -sS --fail-with-body --retry 2 --retry-delay 10 -X POST \
+            -H "X-Cron-Token: ${CRON_TOKEN}" "$url")
+          echo "$resp" | jq .
+          if ! echo "$resp" | jq -e '(.errors | length) == 0 and (.stale | not)' > /dev/null; then
+            echo "::error::價格更新不完整或資料過期：$(echo "$resp" | jq -c '{errors, prices_as_of, rates_as_of, stale}')"
+            exit 1
+          fi

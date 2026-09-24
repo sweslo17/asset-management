@@ -287,23 +287,62 @@ export async function getExistingRateDates(db: DB): Promise<Set<string>> {
   return s;
 }
 
-/** 以 UPSERT 寫入（重複的 ticker+date / date 會覆蓋），供 backfill 與每日價格腳本共用 */
-export async function upsertPrices(db: DB, recs: PriceRecord[]): Promise<number> {
-  if (!recs.length) return 0;
-  const stmts = recs.map((r) =>
-    db.prepare('INSERT INTO prices (ticker, date, close) VALUES (?, ?, ?) ON CONFLICT(ticker, date) DO UPDATE SET close=excluded.close')
-      .bind(r.ticker, r.date, r.close));
-  await db.batch(stmts);
-  return recs.length;
+/**
+ * 寫入價格與匯率（UPSERT：重複的 ticker+date / date 會覆蓋）。
+ * 每張表只用一個語句：整批資料以 JSON 綁成單一參數再 json_each 展開——
+ * D1 免費方案每次呼叫上限 50 個查詢、每語句 100 個綁定參數，逐筆 INSERT 很快就會撞到。
+ * （INSERT…SELECT 搭配 ON CONFLICT 時 SELECT 必須帶 WHERE，否則 SQLite 解析有歧義。）
+ *
+ * @param replaceAll true 時先清空兩張表，與寫入在同一個 batch（交易）內完成，失敗會整批回滾。
+ */
+export async function writeMarketData(
+  db: DB,
+  prices: PriceRecord[],
+  rates: ExchangeRate[],
+  { replaceAll = false }: { replaceAll?: boolean } = {},
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = [];
+  if (replaceAll) {
+    stmts.push(db.prepare('DELETE FROM prices'), db.prepare('DELETE FROM exchange_rates'));
+  }
+  if (prices.length) {
+    stmts.push(db.prepare(
+      `INSERT INTO prices (ticker, date, close)
+       SELECT json_extract(value, '$.ticker'), json_extract(value, '$.date'), json_extract(value, '$.close')
+       FROM json_each(?) WHERE true
+       ON CONFLICT(ticker, date) DO UPDATE SET close=excluded.close`,
+    ).bind(JSON.stringify(prices.map(({ ticker, date, close }) => ({ ticker, date, close })))));
+  }
+  if (rates.length) {
+    stmts.push(db.prepare(
+      `INSERT INTO exchange_rates (date, usd_twd)
+       SELECT json_extract(value, '$.date'), json_extract(value, '$.usd_twd')
+       FROM json_each(?) WHERE true
+       ON CONFLICT(date) DO UPDATE SET usd_twd=excluded.usd_twd`,
+    ).bind(JSON.stringify(rates.map(({ date, usd_twd }) => ({ date, usd_twd })))));
+  }
+  if (stmts.length) await db.batch(stmts);
 }
 
-export async function upsertRates(db: DB, recs: ExchangeRate[]): Promise<number> {
-  if (!recs.length) return 0;
-  const stmts = recs.map((r) =>
-    db.prepare('INSERT INTO exchange_rates (date, usd_twd) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET usd_twd=excluded.usd_twd')
-      .bind(r.date, r.usd_twd));
-  await db.batch(stmts);
-  return recs.length;
+export interface DataFreshness {
+  /** 持有中各標的「最新價格日」的最小值（最落後的那一檔）；無資料為 null。 */
+  prices_as_of: string | null;
+  /** 最新匯率日；無資料為 null。 */
+  rates_as_of: string | null;
+}
+
+export async function getDataFreshness(db: DB): Promise<DataFreshness> {
+  const [p, r] = await Promise.all([
+    db.prepare(
+      `SELECT MIN(latest) AS d FROM (
+         SELECT MAX(date) AS latest FROM prices
+         WHERE ticker IN (SELECT ticker FROM investments GROUP BY ticker HAVING ABS(SUM(units)) > 1e-9)
+         GROUP BY ticker
+       )`,
+    ).first<{ d: string | null }>(),
+    db.prepare('SELECT MAX(date) AS d FROM exchange_rates').first<{ d: string | null }>(),
+  ]);
+  return { prices_as_of: p?.d ?? null, rates_as_of: r?.d ?? null };
 }
 
 // ---------------------------------------------------------------------------
